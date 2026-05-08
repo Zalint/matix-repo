@@ -191,14 +191,10 @@ if ($StopFirst) {
 # ============================================================================
 if ($Mode -eq 'keycloak') {
   Write-Section "Demarrage Keycloak (port 8180)"
-  $kcCmd = @"
-`$env:JAVA_HOME = '$JdkPath'
-`$env:PATH = "`$env:JAVA_HOME\bin;`$env:PATH"
-`$env:KEYCLOAK_ADMIN = 'admin'
-`$env:KEYCLOAK_ADMIN_PASSWORD = 'admin'
-cd '$KeycloakHome'
-.\bin\kc.bat start-dev --http-port=8180
-"@
+  # Note: kc.bat utilise %JAVA_HOME%\bin\java directement, pas besoin de toucher PATH.
+  # On evite le here-string pour ne pas avoir a echapper des guillemets imbriques
+  # qui se font manger lors du passage a 'powershell -Command'.
+  $kcCmd = "`$env:JAVA_HOME='$JdkPath'; `$env:KEYCLOAK_ADMIN='admin'; `$env:KEYCLOAK_ADMIN_PASSWORD='admin'; cd '$KeycloakHome'; .\bin\kc.bat start-dev --http-port=8180"
   Start-InNewWindow "Matix - Keycloak" $kcCmd
   Write-Info "Fenetre 'Matix - Keycloak' lancee"
   if (-not (Wait-ForUrl 'http://localhost:8180/realms/master' 'Keycloak' 120)) {
@@ -212,18 +208,15 @@ cd '$KeycloakHome'
 # ============================================================================
 Write-Section "Demarrage API NestJS (port 3001) en mode '$Mode'"
 
-$apiEnvLines = @()
-foreach ($k in $PgEnv.Keys) { $apiEnvLines += "`$env:$k = '$($PgEnv[$k])'" }
-$apiEnvLines += "`$env:AUTH_MODE = '$Mode'"
+# Construit une commande sur UNE seule ligne (semi-columns) pour eviter les soucis
+# de newlines/quotes lors du pass-through 'powershell -Command'.
+$apiEnvParts = @()
+foreach ($k in $PgEnv.Keys) { $apiEnvParts += "`$env:$k='$($PgEnv[$k])'" }
+$apiEnvParts += "`$env:AUTH_MODE='$Mode'"
 if ($Mode -eq 'keycloak') {
-  foreach ($k in $KcEnv.Keys) { $apiEnvLines += "`$env:$k = '$($KcEnv[$k])'" }
+  foreach ($k in $KcEnv.Keys) { $apiEnvParts += "`$env:$k='$($KcEnv[$k])'" }
 }
-
-$apiCmd = @"
-$($apiEnvLines -join "`n")
-cd '$RepoRoot'
-pnpm --filter @matix/api dev
-"@
+$apiCmd = ($apiEnvParts -join '; ') + "; cd '$RepoRoot'; pnpm --filter @matix/api dev"
 Start-InNewWindow "Matix - API ($Mode)" $apiCmd
 Write-Info "Fenetre 'Matix - API ($Mode)' lancee"
 if (-not (Wait-ForUrl 'http://localhost:3001/health' 'API' 60)) {
@@ -250,10 +243,7 @@ try {
 # ============================================================================
 Write-Section "Demarrage Frontend Next.js (port 3000)"
 
-$webCmd = @"
-cd '$RepoRoot'
-pnpm --filter @matix/web dev
-"@
+$webCmd = "cd '$RepoRoot'; pnpm --filter @matix/web dev"
 Start-InNewWindow "Matix - Web" $webCmd
 Write-Info "Fenetre 'Matix - Web' lancee"
 if (-not (Wait-ForUrl 'http://localhost:3000/login' 'Web' 90)) {
