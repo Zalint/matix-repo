@@ -2,26 +2,34 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { useTenant } from '@/lib/tenant-context';
+import { useAuth } from '@/lib/auth-context';
 
 export default function DashboardPage() {
-  const { current, ready } = useTenant();
+  const auth = useAuth();
   const [counts, setCounts] = useState<{ products: number; customers: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!auth.ready) return;
     setError(null);
-    Promise.all([api.products.list(current), api.customers.list(current)])
+    Promise.all([api.products.list(auth), api.customers.list(auth)])
       .then(([p, c]) => setCounts({ products: p.length, customers: c.length }))
       .catch((e) => setError(e.message));
-  }, [current, ready]);
+  }, [auth]);
+
+  if (!auth.ready) return <div className="text-sm text-gray-500">Chargement…</div>;
+
+  const tenantLabel =
+    auth.mode === 'dev' ? auth.tenantLabel : auth.userEmail ?? auth.tenantId.slice(0, 8);
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-semibold">Tableau de bord</h2>
-        <p className="text-sm text-gray-500">Tenant courant : {current.label}</p>
+        <p className="text-sm text-gray-500">
+          Connecté en tant que <span className="font-medium">{tenantLabel}</span> — mode{' '}
+          <span className="font-mono text-xs">{auth.mode}</span>
+        </p>
       </div>
 
       {error && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
@@ -33,11 +41,11 @@ export default function DashboardPage() {
       </div>
 
       <div className="rounded-md border border-gray-200 bg-white p-4 text-sm text-gray-700">
-        <p className="font-medium">Mode développement</p>
+        <p className="font-medium">Mode {auth.mode === 'keycloak' ? 'production' : 'développement'}</p>
         <p className="mt-1 text-gray-500">
-          L'auth est simulée via les headers <code className="rounded bg-gray-100 px-1">X-Dev-Tenant-Id</code> /{' '}
-          <code className="rounded bg-gray-100 px-1">X-Dev-User-Id</code>. Change de tenant en haut à droite et observe
-          que les listes Produits / Clients sont cloisonnées par RLS Postgres.
+          {auth.mode === 'keycloak'
+            ? 'Authentification réelle via Keycloak (OIDC). Le tenant courant vient de la claim JWT.'
+            : 'Auth simulée via headers X-Dev-Tenant-Id. Bascule de tenant via le dropdown en haut à droite.'}
         </p>
       </div>
     </div>

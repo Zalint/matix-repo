@@ -4,31 +4,32 @@ import { FormEvent, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type Product } from '@/lib/api';
-import { useTenant } from '@/lib/tenant-context';
+import { useAuth } from '@/lib/auth-context';
 
 export default function ProductsPage() {
-  const { current, ready } = useTenant();
+  const auth = useAuth();
   const [items, setItems] = useState<Product[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const reload = () => {
-    if (!ready) return;
+    if (!auth.ready) return;
     setError(null);
-    api.products.list(current).then(setItems).catch((e) => setError(e.message));
+    api.products.list(auth).then(setItems).catch((e) => setError(e.message));
   };
 
-  useEffect(reload, [current, ready]);
+  useEffect(reload, [auth]);
 
   async function handleCreate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!auth.ready) return;
     setBusy(true);
     setError(null);
     const f = e.currentTarget;
     const fd = new FormData(f);
     try {
-      await api.products.create(current, {
+      await api.products.create(auth, {
         sku: String(fd.get('sku')),
         name: String(fd.get('name')),
         unit_price: Number(fd.get('unit_price')),
@@ -44,19 +45,24 @@ export default function ProductsPage() {
   }
 
   async function handleDelete(id: string) {
+    if (!auth.ready) return;
     if (!confirm('Supprimer ce produit ?')) return;
     try {
-      await api.products.remove(current, id);
+      await api.products.remove(auth, id);
       reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
 
+  if (!auth.ready) return <div className="text-sm text-gray-500">Chargement…</div>;
+
+  const tenantLabel = auth.mode === 'dev' ? auth.tenantLabel : auth.userEmail ?? 'tenant';
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold">Produits — {current.label}</h2>
+        <h2 className="text-2xl font-semibold">Produits — {tenantLabel}</h2>
         <Button onClick={() => setShowForm((v) => !v)}>{showForm ? 'Annuler' : 'Nouveau produit'}</Button>
       </div>
 

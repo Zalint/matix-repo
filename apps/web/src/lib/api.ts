@@ -1,6 +1,6 @@
 'use client';
 
-import { DEV_TENANTS, type DevTenant } from './tenant-context';
+import type { AuthState } from './auth-context';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -11,24 +11,26 @@ export class ApiError extends Error {
 }
 
 /**
- * Wrapper fetch typé. Phase 0 : ajoute les headers X-Dev-* depuis le tenant courant.
- * Phase 1 : remplacé par un Authorization: Bearer <jwt> Keycloak.
+ * Wrapper fetch typé. Selon le mode auth :
+ *   - dev      → headers X-Dev-Tenant-Id / X-Dev-User-Id
+ *   - keycloak → Authorization: Bearer <accessToken>
  */
-async function apiFetch<T>(
-  tenant: DevTenant,
-  path: string,
-  init: RequestInit = {},
-): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Dev-Tenant-Id': tenant.id,
-      'X-Dev-User-Id': tenant.userId,
-      ...(init.headers ?? {}),
-    },
-  });
+async function apiFetch<T>(auth: AuthState, path: string, init: RequestInit = {}): Promise<T> {
+  if (!auth.ready) throw new ApiError(401, null, 'Auth not ready');
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((init.headers as Record<string, string>) ?? {}),
+  };
+
+  if (auth.mode === 'dev') {
+    headers['X-Dev-Tenant-Id'] = auth.tenantId;
+    headers['X-Dev-User-Id'] = auth.userId;
+  } else {
+    headers['Authorization'] = `Bearer ${auth.accessToken}`;
+  }
+
+  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
 
@@ -65,24 +67,22 @@ export type Customer = {
 // ---- Endpoints ----
 export const api = {
   products: {
-    list: (t: DevTenant) => apiFetch<Product[]>(t, '/products'),
-    create: (t: DevTenant, body: { sku: string; name: string; unit_price: number }) =>
-      apiFetch<Product>(t, '/products', { method: 'POST', body: JSON.stringify(body) }),
-    update: (t: DevTenant, id: string, body: Partial<{ name: string; unit_price: number }>) =>
-      apiFetch<Product>(t, `/products/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
-    remove: (t: DevTenant, id: string) =>
-      apiFetch<void>(t, `/products/${id}`, { method: 'DELETE' }),
+    list: (a: AuthState) => apiFetch<Product[]>(a, '/products'),
+    create: (a: AuthState, body: { sku: string; name: string; unit_price: number }) =>
+      apiFetch<Product>(a, '/products', { method: 'POST', body: JSON.stringify(body) }),
+    update: (a: AuthState, id: string, body: Partial<{ name: string; unit_price: number }>) =>
+      apiFetch<Product>(a, `/products/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    remove: (a: AuthState, id: string) =>
+      apiFetch<void>(a, `/products/${id}`, { method: 'DELETE' }),
   },
   customers: {
-    list: (t: DevTenant, search?: string) =>
-      apiFetch<Customer[]>(t, `/customers${search ? `?search=${encodeURIComponent(search)}` : ''}`),
-    create: (t: DevTenant, body: Partial<Customer> & { code: string; display_name: string }) =>
-      apiFetch<Customer>(t, '/customers', { method: 'POST', body: JSON.stringify(body) }),
-    update: (t: DevTenant, id: string, body: Partial<Customer>) =>
-      apiFetch<Customer>(t, `/customers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
-    remove: (t: DevTenant, id: string) =>
-      apiFetch<void>(t, `/customers/${id}`, { method: 'DELETE' }),
+    list: (a: AuthState, search?: string) =>
+      apiFetch<Customer[]>(a, `/customers${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+    create: (a: AuthState, body: Partial<Customer> & { code: string; display_name: string }) =>
+      apiFetch<Customer>(a, '/customers', { method: 'POST', body: JSON.stringify(body) }),
+    update: (a: AuthState, id: string, body: Partial<Customer>) =>
+      apiFetch<Customer>(a, `/customers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    remove: (a: AuthState, id: string) =>
+      apiFetch<void>(a, `/customers/${id}`, { method: 'DELETE' }),
   },
 };
-
-export { DEV_TENANTS };

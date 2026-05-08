@@ -4,10 +4,10 @@ import { FormEvent, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type Customer } from '@/lib/api';
-import { useTenant } from '@/lib/tenant-context';
+import { useAuth } from '@/lib/auth-context';
 
 export default function CustomersPage() {
-  const { current, ready } = useTenant();
+  const auth = useAuth();
   const [items, setItems] = useState<Customer[]>([]);
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -15,21 +15,22 @@ export default function CustomersPage() {
   const [busy, setBusy] = useState(false);
 
   const reload = (q?: string) => {
-    if (!ready) return;
+    if (!auth.ready) return;
     setError(null);
-    api.customers.list(current, q).then(setItems).catch((e) => setError(e.message));
+    api.customers.list(auth, q).then(setItems).catch((e) => setError(e.message));
   };
 
-  useEffect(() => reload(), [current, ready]);
+  useEffect(() => reload(), [auth]);
 
   async function handleCreate(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!auth.ready) return;
     setBusy(true);
     setError(null);
     const f = e.currentTarget;
     const fd = new FormData(f);
     try {
-      await api.customers.create(current, {
+      await api.customers.create(auth, {
         code: String(fd.get('code')),
         display_name: String(fd.get('display_name')),
         email: (fd.get('email') as string) || undefined,
@@ -47,19 +48,24 @@ export default function CustomersPage() {
   }
 
   async function handleDelete(id: string) {
+    if (!auth.ready) return;
     if (!confirm('Supprimer ce client ?')) return;
     try {
-      await api.customers.remove(current, id);
+      await api.customers.remove(auth, id);
       reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
 
+  if (!auth.ready) return <div className="text-sm text-gray-500">Chargement…</div>;
+
+  const tenantLabel = auth.mode === 'dev' ? auth.tenantLabel : auth.userEmail ?? 'tenant';
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold">Clients — {current.label}</h2>
+        <h2 className="text-2xl font-semibold">Clients — {tenantLabel}</h2>
         <Button onClick={() => setShowForm((v) => !v)}>{showForm ? 'Annuler' : 'Nouveau client'}</Button>
       </div>
 

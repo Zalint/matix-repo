@@ -49,9 +49,10 @@
     },
     {
       "clientId": "matix-web",
-      "name": "Matix Web (PKCE public)",
+      "name": "Matix Web (confidential — NextAuth server-side)",
       "enabled": true,
-      "publicClient": true,
+      "publicClient": false,
+      "secret": "matix-web-dev-secret",
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": true,
