@@ -1,0 +1,11 @@
+{
+  "name": "@matix/web",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Matix Web — frontend Next.js (placeholder Phase 0)",
+  "scripts": {
+    "build": "echo 'web app not yet scaffolded' && exit 0",
+    "dev": "echo 'web app not yet scaffolded' && exit 0",
+    "lint": "echo 'noop' && exit 0"
+  }
+}

@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: matix-postgres
+    environment:
+      POSTGRES_DB: matix
+      POSTGRES_USER: matix_admin
+      POSTGRES_PASSWORD: matix_admin_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - matix-pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U matix_admin -d matix"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: matix-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - matix-redisdata:/data
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: matix-keycloak
+    command: start-dev
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_DB: dev-mem
+    ports:
+      - "8080:8080"
+    profiles: ["full"]  # docker compose --profile full up
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: matix-mailhog
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # UI
+    profiles: ["full"]
+
+volumes:
+  matix-pgdata:
+  matix-redisdata:

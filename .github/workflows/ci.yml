@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: matix
+          POSTGRES_USER: matix_admin
+          POSTGRES_PASSWORD: matix_admin_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U matix_admin"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node + pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Bootstrap matix_app user
+        env:
+          PGPASSWORD: matix_admin_dev
+        run: |
+          psql -h localhost -U matix_admin -d matix -f db/init/00_create_app_user.sql
+
+      - name: Migrations
+        run: pnpm db:migrate
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_DB: matix
+          POSTGRES_ADMIN_USER: matix_admin
+          POSTGRES_ADMIN_PASSWORD: matix_admin_dev
+
+      - name: Seed
+        run: pnpm db:seed
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_DB: matix
+          POSTGRES_ADMIN_USER: matix_admin
+          POSTGRES_ADMIN_PASSWORD: matix_admin_dev
+
+      - name: Build
+        run: pnpm build
+
+      - name: Lint migrations (RLS check)
+        run: bash scripts/check-rls-migrations.sh
+
+      - name: Multi-tenant isolation tests (BLOCKING)
+        run: pnpm test:e2e
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_DB: matix
+          POSTGRES_APP_USER: matix_app
+          POSTGRES_APP_PASSWORD: matix_app_dev
+          POSTGRES_ADMIN_USER: matix_admin
+          POSTGRES_ADMIN_PASSWORD: matix_admin_dev
+          DEV_AUTH_ENABLED: 'true'
