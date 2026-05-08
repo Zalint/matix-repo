@@ -7,6 +7,7 @@ Décisions structurelles de Matix. Format : [MADR-light](https://adr.github.io/m
 | [0001](0001-multi-tenancy-rls.md) | Multi-tenancy avec Postgres RLS | Proposed |
 | [0002](0002-module-convention.md) | Convention de structure d'un module | Accepted |
 | [0003](0003-auth-keycloak.md) | Auth & SSO avec Keycloak (dual-mode) | Proposed |
+| [0004](0004-pilier-commercial-domain.md) | Schéma de domaine du Pilier Commercial (Sales/POS, Inventory, Invoicing, Payments) | Proposed |
 
 ## Convention
 
