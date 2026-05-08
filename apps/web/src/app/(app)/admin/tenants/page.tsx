@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import Link from 'next/link';
 import { api, type Tenant } from '@/lib/api';
 
 /**
@@ -122,12 +123,13 @@ export default function AdminTenantsPage() {
               <Th>Pays</Th>
               <Th>Devise</Th>
               <Th>Créé le</Th>
+              <Th className="w-24"></Th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {tenants.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
                   Aucun tenant
                 </td>
               </tr>
@@ -140,6 +142,14 @@ export default function AdminTenantsPage() {
                 <Td>{t.country_code}</Td>
                 <Td>{t.currency}</Td>
                 <Td className="text-gray-500">{new Date(t.created_at).toLocaleDateString('fr-FR')}</Td>
+                <Td>
+                  <Link
+                    href={`/admin/tenants/${t.id}/licensing`}
+                    className="text-xs font-medium text-brand-600 hover:underline"
+                  >
+                    Licences →
+                  </Link>
+                </Td>
               </tr>
             ))}
           </tbody>

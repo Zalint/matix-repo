@@ -13,7 +13,10 @@ export function Sidebar() {
     { href: '/products', label: t('products') },
     { href: '/customers', label: t('customers') },
   ];
-  const SETTINGS_NAV = [{ href: '/settings/team', label: 'Équipe' }];
+  const SETTINGS_NAV = [
+    { href: '/settings/team', label: 'Équipe' },
+    { href: '/settings/licensing', label: 'Modules & licences' },
+  ];
   const ADMIN_NAV = [{ href: '/admin/tenants', label: t('tenants') }];
   return (
     <aside className="w-56 shrink-0 border-r border-gray-200 bg-white">
