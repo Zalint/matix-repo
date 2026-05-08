@@ -50,6 +50,32 @@ export type Product = {
   updated_at: string;
 };
 
+export type Tenant = {
+  id: string;
+  slug: string;
+  legal_name: string;
+  status: 'trial' | 'active' | 'suspended' | 'churned';
+  country_code: string;
+  currency: string;
+  locale: string;
+  created_at: string;
+};
+
+export type ProvisionTenantInput = {
+  slug: string;
+  legal_name: string;
+  country_code?: string;
+  currency?: string;
+  ninea?: string;
+  rc?: string;
+  owner: {
+    email: string;
+    first_name: string;
+    last_name: string;
+    password: string;
+  };
+};
+
 export type Customer = {
   id: string;
   code: string;
@@ -63,6 +89,22 @@ export type Customer = {
   created_at: string;
   updated_at: string;
 };
+
+/**
+ * Endpoints admin plateforme (sans tenant context — pas de Bearer requis Phase 0).
+ * Phase 1 : à protéger côté API par AuthGuard "super-admin Matix".
+ */
+const API_URL_PUBLIC = API_URL;
+async function adminFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_URL_PUBLIC}${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...((init.headers as Record<string, string>) ?? {}) },
+  });
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new ApiError(res.status, body, body?.message ?? `HTTP ${res.status}`);
+  return body as T;
+}
 
 // ---- Endpoints ----
 export const api = {
@@ -84,5 +126,16 @@ export const api = {
       apiFetch<Customer>(a, `/customers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     remove: (a: AuthState, id: string) =>
       apiFetch<void>(a, `/customers/${id}`, { method: 'DELETE' }),
+  },
+  admin: {
+    tenants: {
+      list: () => adminFetch<Tenant[]>('/admin/tenants'),
+      provision: (body: ProvisionTenantInput) =>
+        adminFetch<{
+          tenant: Tenant;
+          owner: { user_id: string; email: string };
+          message: string;
+        }>('/admin/tenants', { method: 'POST', body: JSON.stringify(body) }),
+    },
   },
 };
