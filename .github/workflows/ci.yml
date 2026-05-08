@@ -75,4 +75,4 @@ jobs:
           POSTGRES_APP_PASSWORD: matix_app_dev
           POSTGRES_ADMIN_USER: matix_admin
           POSTGRES_ADMIN_PASSWORD: matix_admin_dev
-          DEV_AUTH_ENABLED: 'true'
+          AUTH_MODE: 'dev'

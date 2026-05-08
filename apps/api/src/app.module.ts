@@ -1,11 +1,12 @@
-import { Module, UnauthorizedException } from '@nestjs/common';
-import { APP_INTERCEPTOR } from '@nestjs/core';
+import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR, ModuleRef } from '@nestjs/core';
 import { ClsModule } from 'nestjs-cls';
 import type { Request } from 'express';
-import { validate as isUuid } from 'uuid';
+import type { Pool } from 'pg';
 
-import { DatabaseModule } from './common/database.module';
+import { ADMIN_PG_POOL, DatabaseModule } from './common/database.module';
 import { TenantTxInterceptor } from './common/tenant-tx.interceptor';
+import { extractAuthContext } from './common/auth/extract-context';
 
 import { CustomersModule } from './modules/customers/customers.module';
 import { ProductsModule } from './modules/products/products.module';
@@ -23,39 +24,31 @@ import { TenantsModule } from './modules/tenants/tenants.module';
      *
      * Les routes /admin/* sont laissées sans contexte tenant (l'interceptor le détecte et n'ouvre pas de tx).
      */
-    ClsModule.forRoot({
+    ClsModule.forRootAsync({
       global: true,
-      middleware: {
-        mount: true,
-        setup: (cls, req: Request) => {
-          // Routes admin : pas de tenant context (la logique admin utilise ADMIN_PG_POOL).
-          if (req.url?.startsWith('/admin/') || req.url === '/admin') {
-            return;
-          }
+      imports: [DatabaseModule],
+      inject: [ADMIN_PG_POOL],
+      useFactory: (adminPool: Pool) => ({
+        middleware: {
+          mount: true,
+          setup: async (cls, req: Request) => {
+            // Routes admin plateforme : pas de tenant context (utilisent ADMIN_PG_POOL).
+            if (req.url?.startsWith('/admin/') || req.url === '/admin') {
+              return;
+            }
+            // Healthcheck route — pas d'auth requise.
+            if (req.url === '/health' || req.url === '/healthz') {
+              return;
+            }
 
-          const devEnabled = process.env.DEV_AUTH_ENABLED === 'true';
-          let tenantId: string | undefined;
-          let userId: string | undefined;
-
-          if (devEnabled) {
-            tenantId = req.header('x-dev-tenant-id');
-            userId = req.header('x-dev-user-id');
-          } else {
-            // TODO Phase 1 : décoder JWT Keycloak ici
-            throw new UnauthorizedException('Auth non implémentée (Phase 1)');
-          }
-
-          if (!tenantId || !isUuid(tenantId)) {
-            throw new UnauthorizedException('tenant_id manquant ou invalide');
-          }
-          if (!userId || !isUuid(userId)) {
-            throw new UnauthorizedException('user_id manquant ou invalide');
-          }
-
-          cls.set('tenantId', tenantId);
-          cls.set('userId', userId);
+            const auth = await extractAuthContext(req, adminPool);
+            cls.set('tenantId', auth.tenantId);
+            cls.set('userId', auth.userId);
+            cls.set('email', auth.email);
+            cls.set('roles', auth.roles);
+          },
         },
-      },
+      }),
     }),
     DatabaseModule,
     TenantsModule,

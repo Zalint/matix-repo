@@ -1,0 +1,143 @@
+{
+  "realm": "matix",
+  "enabled": true,
+  "displayName": "Matix",
+  "displayNameHtml": "<b>Matix</b>",
+  "loginTheme": "keycloak",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "rememberMe": true,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "maxDeltaTimeSeconds": 43200,
+  "failureFactor": 5,
+  "defaultLocale": "fr",
+  "supportedLocales": ["fr", "en"],
+  "internationalizationEnabled": true,
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "roles": {
+    "realm": [
+      { "name": "owner", "description": "Propriétaire du tenant — tous droits" },
+      { "name": "admin", "description": "Administrateur tenant" },
+      { "name": "member", "description": "Membre standard" },
+      { "name": "readonly", "description": "Lecture seule" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "matix-api",
+      "name": "Matix API (Bearer-only)",
+      "enabled": true,
+      "publicClient": false,
+      "bearerOnly": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect"
+    },
+    {
+      "clientId": "matix-web",
+      "name": "Matix Web (PKCE public)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://localhost:3000/api/auth/callback/keycloak",
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": ["http://localhost:3000"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/*"
+      },
+      "protocol": "openid-connect",
+      "protocolMappers": [
+        {
+          "name": "active_tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "active_tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "tenant_ids",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant_ids",
+            "claim.name": "tenant_ids",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience-matix-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "matix-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "owner@acme.test",
+      "email": "owner@acme.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Owner",
+      "lastName": "Acme",
+      "credentials": [
+        { "type": "password", "value": "acme-dev-password", "temporary": false }
+      ],
+      "attributes": {
+        "tenant_ids": ["a1111111-1111-4111-8111-111111111111"],
+        "active_tenant_id": ["a1111111-1111-4111-8111-111111111111"]
+      },
+      "realmRoles": ["owner"]
+    },
+    {
+      "username": "owner@beta.test",
+      "email": "owner@beta.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Owner",
+      "lastName": "Beta",
+      "credentials": [
+        { "type": "password", "value": "beta-dev-password", "temporary": false }
+      ],
+      "attributes": {
+        "tenant_ids": ["b2222222-2222-4222-8222-222222222222"],
+        "active_tenant_id": ["b2222222-2222-4222-8222-222222222222"]
+      },
+      "realmRoles": ["owner"]
+    }
+  ]
+}
