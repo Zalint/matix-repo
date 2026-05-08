@@ -15,6 +15,7 @@ import { InventoryModule } from './modules/inventory/inventory.module';
 import { PointsOfSaleModule } from './modules/points-of-sale/points-of-sale.module';
 import { ProductsModule } from './modules/products/products.module';
 import { SalesModule } from './modules/sales/sales.module';
+import { TeamModule } from './modules/team/team.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 
 @Module({
@@ -53,7 +54,7 @@ import { TenantsModule } from './modules/tenants/tenants.module';
             cls.set('tenantId', auth.tenantId);
             cls.set('userId', auth.userId);
             cls.set('email', auth.email);
-            cls.set('roles', auth.roles);
+            cls.set('role', auth.role);
           },
         },
       }),
@@ -67,6 +68,7 @@ import { TenantsModule } from './modules/tenants/tenants.module';
     PointsOfSaleModule,
     InventoryModule,
     SalesModule,
+    TeamModule,
   ],
   providers: [
     {

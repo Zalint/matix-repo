@@ -148,6 +148,21 @@ export class KeycloakAdminService {
   }
 
   /**
+   * Cherche un user Keycloak par email (exact match) dans le realm.
+   * Renvoie l'ID Keycloak (sub) ou null si introuvable.
+   */
+  async findUserByEmail(email: string): Promise<string | null> {
+    const token = await this.getAdminToken();
+    const res = await fetch(
+      `${this.baseUrl}/admin/realms/${this.realm}/users?email=${encodeURIComponent(email)}&exact=true`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) return null;
+    const arr = (await res.json()) as Array<{ id: string }>;
+    return arr[0]?.id ?? null;
+  }
+
+  /**
    * Utilitaire : ajoute un tenant à la liste tenant_ids d'un user existant
    * (cas user multi-tenant). Lit l'attribut puis met à jour.
    */

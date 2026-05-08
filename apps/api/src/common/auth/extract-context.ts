@@ -3,45 +3,64 @@ import type { Request } from 'express';
 import { Pool } from 'pg';
 import { validate as isUuid } from 'uuid';
 import { verifyKeycloakJwt } from './keycloak-jwt';
+import type { TenantRole } from './roles.decorator';
 
 export type ResolvedAuth = {
   tenantId: string;
   userId: string;
   email?: string;
-  roles?: string[];
+  /** Rôle effectif (depuis tenant_members en DB — source de vérité). */
+  role: TenantRole;
 };
 
 /**
- * Source unique de vérité pour extraire (tenantId, userId) d'une requête,
+ * Source unique de vérité pour extraire (tenantId, userId, role) d'une requête,
  * quel que soit le mode d'auth.
  *
  * AUTH_MODE = 'dev'      → headers X-Dev-Tenant-Id / X-Dev-User-Id (Phase 0).
  * AUTH_MODE = 'keycloak' → JWT Bearer Keycloak vérifié + lookup tenant_members.
  *
+ * Le rôle vient TOUJOURS de tenant_members (pas du JWT) — c'est la DB la source
+ * de vérité. Le JWT/realm_access ne sert que pour les rôles plateforme transverses.
+ *
  * Le tenantId n'est JAMAIS dérivé d'un param URL/body/query — uniquement
  * du JWT/header de session, pour empêcher un user authentifié de "voler"
  * le contexte d'un autre tenant.
- *
- * @param adminPool — pool admin (BYPASSRLS) pour vérifier l'appartenance user/tenant
- *                    en mode keycloak. Pas utilisé en mode dev.
  */
 export async function extractAuthContext(req: Request, adminPool: Pool): Promise<ResolvedAuth> {
   const mode = process.env.AUTH_MODE ?? 'dev';
 
   if (mode === 'dev') {
-    return extractDev(req);
+    return extractDev(req, adminPool);
   }
   if (mode === 'keycloak') {
-    return await extractKeycloak(req, adminPool);
+    return extractKeycloak(req, adminPool);
   }
   throw new UnauthorizedException(`AUTH_MODE inconnu: ${mode}`);
 }
 
+async function resolveRole(
+  adminPool: Pool,
+  tenantId: string,
+  userId: string,
+  fallback: TenantRole | null,
+): Promise<TenantRole> {
+  const { rows } = await adminPool.query<{ role: TenantRole }>(
+    `SELECT role FROM tenant_members
+     WHERE tenant_id = $1 AND user_id = $2 AND deactivated_at IS NULL
+     LIMIT 1`,
+    [tenantId, userId],
+  );
+  if (rows.length > 0) return rows[0].role;
+  if (fallback) return fallback;
+  throw new ForbiddenException('User non membre de ce tenant');
+}
+
 // ---------------------------------------------------------------------------
-// Mode dev — Phase 0 only
+// Mode dev — Phase 0
 // ---------------------------------------------------------------------------
 
-function extractDev(req: Request): ResolvedAuth {
+async function extractDev(req: Request, adminPool: Pool): Promise<ResolvedAuth> {
   const tenantId = req.header('x-dev-tenant-id');
   const userId = req.header('x-dev-user-id');
 
@@ -51,7 +70,14 @@ function extractDev(req: Request): ResolvedAuth {
   if (!userId || !isUuid(userId)) {
     throw new UnauthorizedException('user_id manquant ou invalide (mode dev)');
   }
-  return { tenantId, userId };
+
+  // Mode dev : si l'user n'est pas en tenant_members, on suppose 'owner' (test flexibility).
+  // Permet de tester sans devoir insérer manuellement un membre pour chaque dev user_id.
+  // L'X-Dev-Role header peut surcharger pour tester les autres rôles.
+  const headerRole = req.header('x-dev-role') as TenantRole | undefined;
+  const role = headerRole ?? (await resolveRole(adminPool, tenantId, userId, 'owner'));
+
+  return { tenantId, userId, role };
 }
 
 // ---------------------------------------------------------------------------
@@ -78,24 +104,14 @@ async function extractKeycloak(req: Request, adminPool: Pool): Promise<ResolvedA
     throw new UnauthorizedException('JWT sans claim tenant_id valide');
   }
 
-  // Défense en profondeur : même si le JWT est valide, on vérifie en DB que ce user
-  // est BIEN membre de ce tenant. Empêche une claim falsifiée par un Keycloak compromis
-  // OU un user qui aurait gardé son token après suppression de son appartenance.
-  const { rows } = await adminPool.query<{ ok: boolean }>(
-    `SELECT EXISTS(
-       SELECT 1 FROM tenant_members
-       WHERE tenant_id = $1 AND user_id = $2
-     ) AS ok`,
-    [tenantId, userId],
-  );
-  if (!rows[0]?.ok) {
-    throw new ForbiddenException('User non membre de ce tenant');
-  }
+  // Défense en profondeur : ce user est-il MEMBRE actif de ce tenant ?
+  // Et quel est son rôle effectif ?
+  const role = await resolveRole(adminPool, tenantId, userId, null);
 
   return {
     tenantId,
     userId,
     email: claims.email,
-    roles: claims.realm_access?.roles,
+    role,
   };
 }
