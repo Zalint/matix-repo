@@ -7,9 +7,12 @@ export type Product = {
   sku: string;
   name: string;
   unit_price: string; // numeric → string par défaut côté pg
+  category_id: string | null;
   created_at: string;
   updated_at: string;
 };
+
+const COLS = `id, sku, name, unit_price, category_id, created_at, updated_at`;
 
 /**
  * Service Products — POC du pattern multi-tenant RLS.
@@ -24,13 +27,20 @@ export type Product = {
 export class ProductsService {
   constructor(private readonly cls: ClsService) {}
 
-  async list(): Promise<Product[]> {
+  async list(opts: { category_id?: string } = {}): Promise<Product[]> {
     const client = getTenantPgClient(this.cls);
+    const where: string[] = ['deleted_at IS NULL'];
+    const params: unknown[] = [];
+    if (opts.category_id) {
+      params.push(opts.category_id);
+      where.push(`category_id = $${params.length}`);
+    }
     const { rows } = await client.query<Product>(
-      `SELECT id, sku, name, unit_price, created_at, updated_at
+      `SELECT ${COLS}
          FROM products
-        WHERE deleted_at IS NULL
+        WHERE ${where.join(' AND ')}
         ORDER BY created_at DESC`,
+      params,
     );
     return rows;
   }
@@ -38,7 +48,7 @@ export class ProductsService {
   async getById(id: string): Promise<Product> {
     const client = getTenantPgClient(this.cls);
     const { rows } = await client.query<Product>(
-      `SELECT id, sku, name, unit_price, created_at, updated_at
+      `SELECT ${COLS}
          FROM products
         WHERE id = $1 AND deleted_at IS NULL`,
       [id],
@@ -47,30 +57,44 @@ export class ProductsService {
     return rows[0];
   }
 
-  async create(input: { sku: string; name: string; unit_price: number }): Promise<Product> {
+  async create(input: {
+    sku: string;
+    name: string;
+    unit_price: number;
+    category_id?: string | null;
+  }): Promise<Product> {
     const client = getTenantPgClient(this.cls);
-    // tenant_id est rempli automatiquement par RLS WITH CHECK ?
-    // NON — RLS filtre, mais ne SET pas. Il faut fournir tenant_id à l'INSERT.
-    // On lit `app.tenant_id` du contexte de session pour le mettre.
     const { rows } = await client.query<Product>(
-      `INSERT INTO products (tenant_id, sku, name, unit_price)
-       VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3)
-       RETURNING id, sku, name, unit_price, created_at, updated_at`,
-      [input.sku, input.name, input.unit_price],
+      `INSERT INTO products (tenant_id, sku, name, unit_price, category_id)
+       VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4)
+       RETURNING ${COLS}`,
+      [input.sku, input.name, input.unit_price, input.category_id ?? null],
     );
     return rows[0];
   }
 
-  async update(id: string, patch: Partial<{ name: string; unit_price: number }>): Promise<Product> {
+  async update(
+    id: string,
+    patch: Partial<{ name: string; unit_price: number; category_id: string | null }>,
+  ): Promise<Product> {
     const client = getTenantPgClient(this.cls);
+    // category_id peut être explicitement mis à null → on utilise un sentinel ($4_set: bool) pour discriminer.
+    const setCategory = Object.prototype.hasOwnProperty.call(patch, 'category_id');
     const { rows } = await client.query<Product>(
       `UPDATE products
-          SET name = COALESCE($2, name),
-              unit_price = COALESCE($3, unit_price),
-              updated_at = NOW()
+          SET name        = COALESCE($2, name),
+              unit_price  = COALESCE($3, unit_price),
+              category_id = CASE WHEN $5::bool THEN $4 ELSE category_id END,
+              updated_at  = NOW()
         WHERE id = $1 AND deleted_at IS NULL
-        RETURNING id, sku, name, unit_price, created_at, updated_at`,
-      [id, patch.name ?? null, patch.unit_price ?? null],
+        RETURNING ${COLS}`,
+      [
+        id,
+        patch.name ?? null,
+        patch.unit_price ?? null,
+        setCategory ? patch.category_id ?? null : null,
+        setCategory,
+      ],
     );
     if (rows.length === 0) throw new NotFoundException('Produit introuvable');
     return rows[0];

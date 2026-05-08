@@ -12,6 +12,7 @@ export function Sidebar() {
     { href: '/dashboard', label: t('dashboard') },
     { href: '/products', label: t('products') },
     { href: '/customers', label: t('customers') },
+    { href: '/sales', label: 'Ventes' },
   ];
   const OPERATIONS_NAV = [
     { href: '/operations/inventory', label: 'Stock' },

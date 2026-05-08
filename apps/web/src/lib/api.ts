@@ -46,8 +46,50 @@ export type Product = {
   sku: string;
   name: string;
   unit_price: string;
+  category_id: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type ProductCategory = {
+  id: string;
+  code: string;
+  name: string;
+  family: string | null;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DailyStats = {
+  date: string;
+  transactions: number;
+  orders: number;
+  revenue: string;
+  items_sold: string;
+  by_method: Array<{ method: string; count: number; amount: string }>;
+};
+
+export type SaleLineRow = {
+  sale_id: string;
+  sale_item_id: string;
+  reference_number: string | null;
+  date: string;
+  point_of_sale_id: string;
+  point_of_sale_name: string;
+  customer_id: string | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  customer_address: string | null;
+  product_id: string;
+  product_name: string;
+  category_id: string | null;
+  category_name: string | null;
+  unit_price: string;
+  quantity: string;
+  line_total: string;
+  is_credit: boolean;
 };
 
 export type Tenant = {
@@ -152,6 +194,114 @@ export type PointOfSale = {
   updated_at: string;
 };
 
+// ---- Licensing ----
+export type Pillar = 'platform' | 'commercial' | 'operations' | 'finance' | 'analytics' | 'marketplace';
+export type ModuleAction = 'read' | 'write' | 'delete';
+
+export type ModuleDefinition = {
+  code: string;
+  pillar: Pillar;
+  label: { fr: string; en: string };
+  description_fr?: string;
+  actions: ModuleAction[];
+  status: 'active' | 'beta' | 'coming-soon';
+  depends_on?: string[];
+};
+
+export type Plan = {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  monthly_price_xof: string;
+  modules: string[];
+  is_active: boolean;
+};
+
+export type TenantLicense = {
+  module_code: string;
+  enabled: boolean;
+  source: 'plan' | 'addon' | 'manual';
+  expires_at: string | null;
+};
+
+export type EffectivePermission = {
+  module: string;
+  actions: string[];
+};
+
+// ---- Sales / POS ----
+export type SaleStatus = 'draft' | 'posted' | 'voided';
+export type PaymentMethod = 'cash' | 'wave' | 'orange_money' | 'mtn_momo' | 'card' | 'credit';
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  cash: 'Espèces',
+  wave: 'Wave',
+  orange_money: 'Orange Money',
+  mtn_momo: 'MTN Mobile Money',
+  card: 'Carte',
+  credit: 'Crédit client',
+};
+
+export type Sale = {
+  id: string;
+  point_of_sale_id: string;
+  customer_id: string | null;
+  user_id: string;
+  status: SaleStatus;
+  subtotal: string;
+  tax_total: string;
+  total: string;
+  paid_total: string;
+  change_given: string;
+  reference_number: string | null;
+  notes: string | null;
+  posted_at: string | null;
+  voided_at: string | null;
+  voided_reason: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SaleItem = {
+  id: string;
+  sale_id: string;
+  product_id: string;
+  quantity: string;
+  unit_price: string;
+  discount_amount: string;
+  tax_rate: string;
+  tax_amount: string;
+  line_total: string;
+};
+
+export type SalePayment = {
+  id: string;
+  sale_id: string;
+  method: PaymentMethod;
+  amount: string;
+  reference: string | null;
+  status: 'pending' | 'succeeded' | 'failed' | 'refunded';
+  received_at: string | null;
+};
+
+export type SaleDetail = Sale & { items: SaleItem[]; payments: SalePayment[] };
+
+export type CreateSaleInput = {
+  point_of_sale_id: string;
+  customer_id?: string;
+  items: Array<{
+    product_id: string;
+    quantity: number;
+    unit_price?: number;
+    discount_amount?: number;
+    tax_rate?: number;
+  }>;
+  payments?: Array<{ method: PaymentMethod; amount: number; reference?: string }>;
+  notes?: string;
+  auto_post?: boolean;
+};
+
 /**
  * Endpoints admin plateforme (sans tenant context — pas de Bearer requis Phase 0).
  * Phase 1 : à protéger côté API par AuthGuard "super-admin Matix".
@@ -171,13 +321,32 @@ async function adminFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
 // ---- Endpoints ----
 export const api = {
   products: {
-    list: (a: AuthState) => apiFetch<Product[]>(a, '/products'),
-    create: (a: AuthState, body: { sku: string; name: string; unit_price: number }) =>
+    list: (a: AuthState, opts?: { category_id?: string }) => {
+      const qs = opts?.category_id ? `?category_id=${opts.category_id}` : '';
+      return apiFetch<Product[]>(a, `/products${qs}`);
+    },
+    create: (a: AuthState, body: { sku: string; name: string; unit_price: number; category_id?: string }) =>
       apiFetch<Product>(a, '/products', { method: 'POST', body: JSON.stringify(body) }),
-    update: (a: AuthState, id: string, body: Partial<{ name: string; unit_price: number }>) =>
-      apiFetch<Product>(a, `/products/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    update: (
+      a: AuthState,
+      id: string,
+      body: Partial<{ name: string; unit_price: number; category_id: string | null }>,
+    ) => apiFetch<Product>(a, `/products/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     remove: (a: AuthState, id: string) =>
       apiFetch<void>(a, `/products/${id}`, { method: 'DELETE' }),
+  },
+  productCategories: {
+    list: (a: AuthState, opts?: { activeOnly?: boolean }) =>
+      apiFetch<ProductCategory[]>(a, `/product-categories${opts?.activeOnly ? '?active_only=true' : ''}`),
+    create: (a: AuthState, body: { code: string; name: string; family?: string; display_order?: number }) =>
+      apiFetch<ProductCategory>(a, '/product-categories', { method: 'POST', body: JSON.stringify(body) }),
+    update: (
+      a: AuthState,
+      id: string,
+      body: Partial<{ name: string; family: string | null; display_order: number; is_active: boolean }>,
+    ) => apiFetch<ProductCategory>(a, `/product-categories/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    remove: (a: AuthState, id: string) =>
+      apiFetch<void>(a, `/product-categories/${id}`, { method: 'DELETE' }),
   },
   pointsOfSale: {
     list: (a: AuthState, opts?: { activeOnly?: boolean }) =>
@@ -223,6 +392,39 @@ export const api = {
         body: JSON.stringify(body),
       }),
   },
+  sales: {
+    list: (a: AuthState, opts?: { status?: SaleStatus; limit?: number; offset?: number }) => {
+      const qs = new URLSearchParams();
+      if (opts?.status) qs.set('status', opts.status);
+      if (opts?.limit) qs.set('limit', String(opts.limit));
+      if (opts?.offset) qs.set('offset', String(opts.offset));
+      return apiFetch<Sale[]>(a, `/sales${qs.toString() ? '?' + qs : ''}`);
+    },
+    getById: (a: AuthState, id: string) => apiFetch<SaleDetail>(a, `/sales/${id}`),
+    create: (a: AuthState, body: CreateSaleInput) =>
+      apiFetch<SaleDetail>(a, '/sales', { method: 'POST', body: JSON.stringify(body) }),
+    post: (a: AuthState, id: string) =>
+      apiFetch<Sale>(a, `/sales/${id}/post`, { method: 'POST' }),
+    void: (a: AuthState, id: string, reason: string) =>
+      apiFetch<Sale>(a, `/sales/${id}/void`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    dailyStats: (a: AuthState, opts?: { date?: string; point_of_sale_id?: string }) => {
+      const qs = new URLSearchParams();
+      if (opts?.date) qs.set('date', opts.date);
+      if (opts?.point_of_sale_id) qs.set('point_of_sale_id', opts.point_of_sale_id);
+      return apiFetch<DailyStats>(a, `/sales/daily-stats${qs.toString() ? '?' + qs : ''}`);
+    },
+    lines: (a: AuthState, opts?: { date?: string; point_of_sale_id?: string; limit?: number; offset?: number }) => {
+      const qs = new URLSearchParams();
+      if (opts?.date) qs.set('date', opts.date);
+      if (opts?.point_of_sale_id) qs.set('point_of_sale_id', opts.point_of_sale_id);
+      if (opts?.limit) qs.set('limit', String(opts.limit));
+      if (opts?.offset) qs.set('offset', String(opts.offset));
+      return apiFetch<SaleLineRow[]>(a, `/sales/lines${qs.toString() ? '?' + qs : ''}`);
+    },
+  },
   customers: {
     list: (a: AuthState, search?: string) =>
       apiFetch<Customer[]>(a, `/customers${search ? `?search=${encodeURIComponent(search)}` : ''}`),
@@ -243,6 +445,26 @@ export const api = {
           message: string;
         }>('/admin/tenants', { method: 'POST', body: JSON.stringify(body) }),
     },
+  },
+  licensing: {
+    catalog: () => adminFetch<ModuleDefinition[]>('/licensing/catalog'),
+    plans: () => adminFetch<Plan[]>('/licensing/plans'),
+    me: (a: AuthState) => apiFetch<TenantLicense[]>(a, '/licensing/me'),
+    myPermissions: (a: AuthState) => apiFetch<EffectivePermission[]>(a, '/licensing/me/permissions'),
+  },
+  adminLicensing: {
+    listForTenant: (tenantId: string) =>
+      adminFetch<TenantLicense[]>(`/admin/licensing/${tenantId}/licenses`),
+    assignPlan: (tenantId: string, plan_code: string) =>
+      adminFetch<{ ok: true }>(`/admin/licensing/${tenantId}/plan`, {
+        method: 'PATCH',
+        body: JSON.stringify({ plan_code }),
+      }),
+    toggleModule: (tenantId: string, module_code: string, enabled: boolean) =>
+      adminFetch<{ ok: true }>(`/admin/licensing/${tenantId}/modules`, {
+        method: 'POST',
+        body: JSON.stringify({ module_code, enabled }),
+      }),
   },
   team: {
     list: (a: AuthState) => apiFetch<TeamMember[]>(a, '/team'),

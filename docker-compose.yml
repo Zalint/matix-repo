@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17
     container_name: matix-postgres
     environment:
       POSTGRES_DB: matix
@@ -17,6 +17,33 @@ services:
       timeout: 5s
       retries: 10
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: matix-keycloak
+    command: ["start-dev", "--import-realm"]
+    environment:
+      # KC 25 utilise KEYCLOAK_ADMIN(_PASSWORD). KC 26+ : KC_BOOTSTRAP_ADMIN_*.
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      # Persistence sur la DB Postgres (DB 'keycloak' creee par db/init/01_create_keycloak_db.sql).
+      # Evite : (a) les soucis de perms volume avec dev-file, (b) la perte des tables
+      # avec dev-mem (H2 in-memory perd tout quand les connexions Hikari ferment).
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak_dev
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./infra/keycloak:/opt/keycloak/data/import:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Optional services — activate via: docker compose --profile extras up -d
+  # ---------------------------------------------------------------------------
   redis:
     image: redis:7-alpine
     container_name: matix-redis
@@ -24,18 +51,7 @@ services:
       - "6379:6379"
     volumes:
       - matix-redisdata:/data
-
-  keycloak:
-    image: quay.io/keycloak/keycloak:25.0
-    container_name: matix-keycloak
-    command: start-dev
-    environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
-      KC_DB: dev-mem
-    ports:
-      - "8080:8080"
-    profiles: ["full"]  # docker compose --profile full up
+    profiles: ["extras"]
 
   mailhog:
     image: mailhog/mailhog:latest
@@ -43,7 +59,7 @@ services:
     ports:
       - "1025:1025"  # SMTP
       - "8025:8025"  # UI
-    profiles: ["full"]
+    profiles: ["extras"]
 
 volumes:
   matix-pgdata:

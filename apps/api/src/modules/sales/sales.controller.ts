@@ -31,6 +31,34 @@ export class SalesController {
     });
   }
 
+  /** Lignes de vente flat — utilisée par le mode Standard. */
+  @Get('lines')
+  @RequiresModule('commercial.sales.pos', 'read')
+  listLines(
+    @Query('date') date?: string,
+    @Query('point_of_sale_id') point_of_sale_id?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.sales.listLines({
+      date,
+      point_of_sale_id,
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
+  }
+
+  /** Stats journalières pour le bandeau "Résumé du jour" du POS. */
+  @Get('daily-stats')
+  @RequiresModule('commercial.sales.pos', 'read')
+  dailyStats(
+    @Query('date') date?: string,
+    @Query('point_of_sale_id') point_of_sale_id?: string,
+  ) {
+    const today = new Date().toISOString().slice(0, 10);
+    return this.sales.getDailyStats({ date: date ?? today, point_of_sale_id });
+  }
+
   @Get(':id')
   @RequiresModule('commercial.sales.pos', 'read')
   getOne(@Param('id', ParseUUIDPipe) id: string) {

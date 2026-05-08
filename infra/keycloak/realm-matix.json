@@ -23,7 +23,6 @@
   "defaultLocale": "fr",
   "supportedLocales": ["fr", "en"],
   "internationalizationEnabled": true,
-  "_comment_unmanaged_attrs": "Voir infra/keycloak/README.md — unmanagedAttributePolicy doit être ENABLED pour que tenant_ids/active_tenant_id soient stockés sur les users.",
   "accessTokenLifespan": 900,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,

@@ -80,6 +80,150 @@ export class SalesService {
   // Reads
   // ---------------------------------------------------------------------------
 
+  /**
+   * Lignes de vente "à plat" — utilisée par le mode Standard du POS.
+   * Joint sale_items + sales + products + categories + customers + points_of_sale.
+   * Le flag is_credit est posé si AU MOINS UN paiement de la sale a method='credit'.
+   */
+  async listLines(opts: {
+    date?: string;
+    point_of_sale_id?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<Array<{
+    sale_id: string;
+    sale_item_id: string;
+    reference_number: string | null;
+    date: string;
+    point_of_sale_id: string;
+    point_of_sale_name: string;
+    customer_id: string | null;
+    customer_name: string | null;
+    customer_phone: string | null;
+    customer_address: string | null;
+    product_id: string;
+    product_name: string;
+    category_id: string | null;
+    category_name: string | null;
+    unit_price: string;
+    quantity: string;
+    line_total: string;
+    is_credit: boolean;
+  }>> {
+    const client = getTenantPgClient(this.cls);
+    const where: string[] = [`s.deleted_at IS NULL`, `s.status = 'posted'`];
+    const params: unknown[] = [];
+    if (opts.date) {
+      params.push(opts.date);
+      where.push(`s.posted_at::date = $${params.length}::date`);
+    }
+    if (opts.point_of_sale_id) {
+      params.push(opts.point_of_sale_id);
+      where.push(`s.point_of_sale_id = $${params.length}`);
+    }
+    const limit = Math.min(opts.limit ?? 100, 500);
+    const offset = opts.offset ?? 0;
+    params.push(limit, offset);
+
+    const sql = `
+      SELECT
+        s.id                       AS sale_id,
+        si.id                      AS sale_item_id,
+        s.reference_number,
+        TO_CHAR(s.posted_at, 'YYYY-MM-DD') AS date,
+        s.point_of_sale_id,
+        pos.name                   AS point_of_sale_name,
+        s.customer_id,
+        cu.display_name            AS customer_name,
+        cu.phone                   AS customer_phone,
+        cu.address                 AS customer_address,
+        si.product_id,
+        p.name                     AS product_name,
+        p.category_id,
+        c.name                     AS category_name,
+        si.unit_price::text,
+        si.quantity::text,
+        si.line_total::text,
+        EXISTS (
+          SELECT 1 FROM sale_payments sp
+           WHERE sp.sale_id = s.id AND sp.method = 'credit' AND sp.status = 'succeeded'
+        )                          AS is_credit
+        FROM sale_items si
+        JOIN sales s              ON s.id = si.sale_id
+        LEFT JOIN points_of_sale pos    ON pos.id = s.point_of_sale_id
+        LEFT JOIN products p            ON p.id = si.product_id
+        LEFT JOIN product_categories c  ON c.id = p.category_id
+        LEFT JOIN customers cu          ON cu.id = s.customer_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY s.posted_at DESC, si.created_at ASC
+       LIMIT $${params.length - 1} OFFSET $${params.length}
+    `;
+    const { rows } = await client.query(sql, params);
+    return rows;
+  }
+
+  /**
+   * Stats journalières pour le bandeau "Résumé du jour" du POS.
+   *   - transactions  : nombre de ventes 'posted' à la date donnée
+   *   - orders        : alias de transactions (parité Maas App "commandes")
+   *   - revenue       : somme des `total` (XOF)
+   *   - items_sold    : somme des quantités d'items
+   *   - by_method     : agrégation par méthode de paiement
+   * Filtre optionnel par point de vente.
+   */
+  async getDailyStats(opts: { date: string; point_of_sale_id?: string }): Promise<{
+    date: string;
+    transactions: number;
+    orders: number;
+    revenue: string;
+    items_sold: string;
+    by_method: Array<{ method: string; count: number; amount: string }>;
+  }> {
+    const client = getTenantPgClient(this.cls);
+    const where: string[] = [`status = 'posted'`, `posted_at::date = $1::date`];
+    const params: unknown[] = [opts.date];
+    if (opts.point_of_sale_id) {
+      params.push(opts.point_of_sale_id);
+      where.push(`point_of_sale_id = $${params.length}`);
+    }
+    const whereSql = where.join(' AND ');
+
+    const headerQ = await client.query<{ tx: string; revenue: string }>(
+      `SELECT COUNT(*)::text AS tx, COALESCE(SUM(total), 0)::text AS revenue
+         FROM sales WHERE ${whereSql}`,
+      params,
+    );
+
+    const itemsQ = await client.query<{ items_sold: string }>(
+      `SELECT COALESCE(SUM(si.quantity), 0)::text AS items_sold
+         FROM sale_items si
+         JOIN sales s ON s.id = si.sale_id
+        WHERE ${whereSql.replace(/posted_at/g, 's.posted_at').replace(/status/, 's.status').replace(/point_of_sale_id/, 's.point_of_sale_id')}`,
+      params,
+    );
+
+    const methodsQ = await client.query<{ method: string; count: string; amount: string }>(
+      `SELECT sp.method, COUNT(*)::text AS count, COALESCE(SUM(sp.amount), 0)::text AS amount
+         FROM sale_payments sp
+         JOIN sales s ON s.id = sp.sale_id
+        WHERE ${whereSql.replace(/posted_at/g, 's.posted_at').replace(/status/, 's.status').replace(/point_of_sale_id/, 's.point_of_sale_id')}
+          AND sp.status = 'succeeded'
+        GROUP BY sp.method
+        ORDER BY amount DESC`,
+      params,
+    );
+
+    const tx = Number(headerQ.rows[0]?.tx ?? 0);
+    return {
+      date: opts.date,
+      transactions: tx,
+      orders: tx,
+      revenue: headerQ.rows[0]?.revenue ?? '0',
+      items_sold: itemsQ.rows[0]?.items_sold ?? '0',
+      by_method: methodsQ.rows.map((r) => ({ method: r.method, count: Number(r.count), amount: r.amount })),
+    };
+  }
+
   async list(opts: { status?: SaleStatus; limit?: number; offset?: number } = {}): Promise<Sale[]> {
     const client = getTenantPgClient(this.cls);
     const where: string[] = ['deleted_at IS NULL'];

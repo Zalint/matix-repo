@@ -14,6 +14,7 @@ import { HealthModule } from './modules/health/health.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { LicensingModule } from './modules/licensing/licensing.module';
 import { PointsOfSaleModule } from './modules/points-of-sale/points-of-sale.module';
+import { ProductCategoriesModule } from './modules/product-categories/product-categories.module';
 import { ProductsModule } from './modules/products/products.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { TeamModule } from './modules/team/team.module';
@@ -70,6 +71,7 @@ import { TenantsModule } from './modules/tenants/tenants.module';
     LicensingModule,
     TenantsModule,
     ProductsModule,
+    ProductCategoriesModule,
     CustomersModule,
     PointsOfSaleModule,
     InventoryModule,

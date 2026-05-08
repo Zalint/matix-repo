@@ -11,7 +11,7 @@
  */
 import { Pool } from 'pg';
 
-const KC_BASE = process.env.KEYCLOAK_BASE ?? 'http://localhost:8180';
+const KC_BASE = process.env.KEYCLOAK_BASE ?? 'http://localhost:8080';
 const KC_REALM = process.env.KEYCLOAK_TARGET_REALM ?? 'matix';
 const KC_ADMIN_USER = process.env.KEYCLOAK_ADMIN_USER ?? 'admin';
 const KC_ADMIN_PASSWORD = process.env.KEYCLOAK_ADMIN_PASSWORD ?? 'admin';
