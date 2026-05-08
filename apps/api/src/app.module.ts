@@ -14,6 +14,7 @@ import { HealthModule } from './modules/health/health.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { PointsOfSaleModule } from './modules/points-of-sale/points-of-sale.module';
 import { ProductsModule } from './modules/products/products.module';
+import { SalesModule } from './modules/sales/sales.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 
 @Module({
@@ -65,6 +66,7 @@ import { TenantsModule } from './modules/tenants/tenants.module';
     CustomersModule,
     PointsOfSaleModule,
     InventoryModule,
+    SalesModule,
   ],
   providers: [
     {

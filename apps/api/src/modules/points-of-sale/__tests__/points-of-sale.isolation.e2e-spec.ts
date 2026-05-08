@@ -22,11 +22,11 @@ describe('PointsOfSale — multi-tenant isolation', () => {
     app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
     await app.init();
     adminPool = app.get(ADMIN_PG_POOL);
-    await adminPool.query(`DELETE FROM points_of_sale WHERE code LIKE 'itest-%'`);
+    await adminPool.query(`DELETE FROM points_of_sale WHERE code IN ('itest-pv-a1','itest-pv-a2','itest-pv-upd','itest-dup','itest-shared','itest-del')`);
   });
 
   afterAll(async () => {
-    await adminPool.query(`DELETE FROM points_of_sale WHERE code LIKE 'itest-%'`);
+    await adminPool.query(`DELETE FROM points_of_sale WHERE code IN ('itest-pv-a1','itest-pv-a2','itest-pv-upd','itest-dup','itest-shared','itest-del')`);
     await app.close();
   });
 
