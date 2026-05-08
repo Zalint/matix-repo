@@ -1,14 +1,12 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, ValidationPipe } from '@nestjs/common';
 import { TenantsService } from './tenants.service';
-
-class ProvisionTenantDto {
-  slug!: string;
-  legal_name!: string;
-}
+import { ProvisionTenantDto } from './dto/provision-tenant.dto';
 
 /**
- * Routes admin plateforme. Exclues du TenantContextMiddleware.
- * Phase 1 : à protéger par AuthGuard super-admin (clé API ou JWT super-admin).
+ * Routes admin plateforme. Exclues du CLS tenant context.
+ *
+ * ⚠️ Phase 0 : non protégées (dev). Phase 1 : AuthGuard "super-admin Matix"
+ * (clé API + IP whitelist OU compte Keycloak admin spécifique).
  */
 @Controller('admin/tenants')
 export class TenantsController {
@@ -20,7 +18,7 @@ export class TenantsController {
   }
 
   @Post()
-  provision(@Body() dto: ProvisionTenantDto) {
+  provision(@Body(new ValidationPipe({ whitelist: true, transform: true })) dto: ProvisionTenantDto) {
     return this.tenants.provision(dto);
   }
 }

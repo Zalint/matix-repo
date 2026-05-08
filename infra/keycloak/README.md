@@ -80,6 +80,27 @@ $env:PGPASSWORD='matix_admin_dev'
 
 ⚠️ Phase 1 fix attendu : table `users` (id Matix interne, keycloak_sub nullable) — voir backlog. En l'état, dev mode et keycloak mode coexistent en ajoutant les 2 user_id distincts à tenant_members.
 
+## Réglage critique : `unmanagedAttributePolicy`
+
+Depuis Keycloak 24, les attributs custom (comme `tenant_ids`, `active_tenant_id`) sont **silencieusement droppés** si la realm ne les autorise pas. Sans ça, le `tenant_id` ne se retrouve pas dans le JWT.
+
+**Fix** : activer **Unmanaged Attributes Policy = ENABLED** sur la realm `matix` :
+
+### Via UI
+Realm settings → **General** → **Unmanaged Attributes** → **Enabled**.
+
+### Via REST
+```powershell
+$tok = (Invoke-RestMethod -Method POST -Uri "http://localhost:8180/realms/master/protocol/openid-connect/token" -ContentType "application/x-www-form-urlencoded" -Body @{ grant_type='password'; client_id='admin-cli'; username='admin'; password='admin' }).access_token
+$profile = Invoke-RestMethod -Uri "http://localhost:8180/admin/realms/matix/users/profile" -Headers @{Authorization="Bearer $tok"}
+$profile | Add-Member -NotePropertyName 'unmanagedAttributePolicy' -NotePropertyValue 'ENABLED' -Force
+($profile | ConvertTo-Json -Depth 10 -Compress) | Out-File .tmp.json -Encoding ascii
+curl.exe -X PUT "http://localhost:8180/admin/realms/matix/users/profile" -H "Authorization: Bearer $tok" -H "Content-Type: application/json" --data-binary "@.tmp.json"
+Remove-Item .tmp.json
+```
+
+> Note : `KeycloakAdminService.createUser()` appelle `ensureUnmanagedAttributesEnabled()` automatiquement avant chaque création de user — donc en pratique, l'API se charge de l'activer lors du premier appel à `POST /admin/tenants`. Mais c'est plus propre de l'avoir dans le seed initial.
+
 ## Vérifier
 
 Le realm `matix` doit contenir :

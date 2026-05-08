@@ -32,12 +32,15 @@ import { TenantsModule } from './modules/tenants/tenants.module';
         middleware: {
           mount: true,
           setup: async (cls, req: Request) => {
+            // En NestJS + nestjs-cls, req.url est rebased à '/' par le mount du middleware
+            // sur '*'. Toujours utiliser req.originalUrl pour le routing logique.
+            const url = req.originalUrl ?? req.url ?? '';
             // Routes admin plateforme : pas de tenant context (utilisent ADMIN_PG_POOL).
-            if (req.url?.startsWith('/admin/') || req.url === '/admin') {
+            if (url.startsWith('/admin/') || url === '/admin' || url.startsWith('/admin?')) {
               return;
             }
             // Healthcheck route — pas d'auth requise.
-            if (req.url === '/health' || req.url === '/healthz') {
+            if (url === '/health' || url === '/healthz') {
               return;
             }
 
