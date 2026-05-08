@@ -12,6 +12,7 @@ import { LoggerModule } from './common/logger/logger.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { HealthModule } from './modules/health/health.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
+import { LicensingModule } from './modules/licensing/licensing.module';
 import { PointsOfSaleModule } from './modules/points-of-sale/points-of-sale.module';
 import { ProductsModule } from './modules/products/products.module';
 import { SalesModule } from './modules/sales/sales.module';
@@ -49,6 +50,10 @@ import { TenantsModule } from './modules/tenants/tenants.module';
             if (url === '/health' || url === '/healthz' || url === '/readyz') {
               return;
             }
+            // Catalogue + plans publics — accessibles sans tenant context.
+            if (url === '/licensing/catalog' || url === '/licensing/plans') {
+              return;
+            }
 
             const auth = await extractAuthContext(req, adminPool);
             cls.set('tenantId', auth.tenantId);
@@ -62,6 +67,7 @@ import { TenantsModule } from './modules/tenants/tenants.module';
     LoggerModule,
     DatabaseModule,
     HealthModule,
+    LicensingModule,
     TenantsModule,
     ProductsModule,
     CustomersModule,

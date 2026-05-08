@@ -11,12 +11,14 @@ import {
 import { SalesService, SaleStatus } from './sales.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { VoidSaleDto } from './dto/void-sale.dto';
+import { RequiresModule } from '../licensing/licensing.decorator';
 
 @Controller('sales')
 export class SalesController {
   constructor(private readonly sales: SalesService) {}
 
   @Get()
+  @RequiresModule('commercial.sales.pos', 'read')
   list(
     @Query('status') status?: SaleStatus,
     @Query('limit') limit?: string,
@@ -30,23 +32,27 @@ export class SalesController {
   }
 
   @Get(':id')
+  @RequiresModule('commercial.sales.pos', 'read')
   getOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.sales.getById(id);
   }
 
   @Post()
+  @RequiresModule('commercial.sales.pos', 'write')
   create(@Body() dto: CreateSaleDto) {
     return this.sales.create(dto);
   }
 
   @Post(':id/post')
   @HttpCode(200)
+  @RequiresModule('commercial.sales.pos', 'write')
   post(@Param('id', ParseUUIDPipe) id: string) {
     return this.sales.post(id);
   }
 
   @Post(':id/void')
   @HttpCode(200)
+  @RequiresModule('commercial.sales.pos', 'delete')
   voidSale(@Param('id', ParseUUIDPipe) id: string, @Body() dto: VoidSaleDto) {
     return this.sales.void(id, dto.reason);
   }

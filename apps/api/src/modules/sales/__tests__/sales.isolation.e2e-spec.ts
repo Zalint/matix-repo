@@ -46,6 +46,15 @@ describe('Sales — flow + isolation', () => {
     await adminPool.query(`DELETE FROM customers WHERE code LIKE 'ITEST-SALES-%'`);
     await adminPool.query(`DELETE FROM document_sequences WHERE tenant_id IN ($1, $2)`, [TENANT_A, TENANT_B]);
 
+    // S'assure que les 2 tenants ont les modules nécessaires licenciés
+    await adminPool.query(
+      `INSERT INTO tenant_licenses (tenant_id, module_code, enabled, source) VALUES
+         ($1, 'commercial.sales.pos', TRUE, 'plan'),
+         ($2, 'commercial.sales.pos', TRUE, 'plan')
+       ON CONFLICT (tenant_id, module_code) DO UPDATE SET enabled = TRUE`,
+      [TENANT_A, TENANT_B],
+    );
+
     // Seed
     prodA = (await adminPool.query<{ id: string }>(
       `INSERT INTO products (tenant_id, sku, name, unit_price) VALUES ($1, 'ITEST-SALES-A', 'Produit A', 1500) RETURNING id`,
