@@ -2,7 +2,8 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
 import { PoolClient } from 'pg';
 import { getTenantPgClient } from '../../common/tenant-tx.interceptor';
-import { MovementType, RecordMovementDto } from './dto/record-movement.dto';
+import { CreateTransferDto, MovementType, RecordMovementDto } from './dto/record-movement.dto';
+import { BadRequestException as BadReq } from '@nestjs/common';
 
 export type StockLevel = {
   id: string;
@@ -131,6 +132,63 @@ export class InventoryService {
       ...dto,
       performed_by: userId ?? null,
     });
+  }
+
+  /**
+   * Transfert inter-PV atomique : `transfer_out` au source + `transfer_in` au cible.
+   * Rollback si l'un des deux échoue (deux INSERT dans la même tx HTTP).
+   *
+   * Validation :
+   *   - from ≠ to
+   *   - quantity > 0
+   *   - stock disponible au source ≥ quantity
+   */
+  async recordTransfer(dto: CreateTransferDto): Promise<{ out_id: string; in_id: string }> {
+    if (dto.from_point_of_sale_id === dto.to_point_of_sale_id) {
+      throw new BadReq('from_point_of_sale_id et to_point_of_sale_id doivent être différents');
+    }
+    if (dto.quantity <= 0) {
+      throw new BadReq('quantity doit être > 0');
+    }
+
+    const client = getTenantPgClient(this.cls);
+    const userId = this.cls.get<string>('userId') ?? null;
+
+    // Vérif stock dispo au source
+    const sourceLevel = await this.getLevel(dto.product_id, dto.from_point_of_sale_id);
+    const sourceQty = sourceLevel ? Number(sourceLevel.quantity_on_hand) : 0;
+    if (sourceQty < dto.quantity) {
+      throw new BadReq(
+        `Stock insuffisant au PV source : ${sourceQty} dispo, ${dto.quantity} demandé`,
+      );
+    }
+
+    // 1. Sortie au source (négatif)
+    const outRow = await this.insertMovement(client, {
+      product_id: dto.product_id,
+      point_of_sale_id: dto.from_point_of_sale_id,
+      movement_type: MovementType.TRANSFER_OUT,
+      quantity: -dto.quantity,
+      unit_cost: dto.unit_cost,
+      reason: dto.reason ?? `Transfert vers PV ${dto.to_point_of_sale_id}`,
+      reference_table: 'inventory_transfers',
+      performed_by: userId,
+    });
+
+    // 2. Entrée au cible (positif), avec reference_id pointant vers le mouvement de sortie
+    const inRow = await this.insertMovement(client, {
+      product_id: dto.product_id,
+      point_of_sale_id: dto.to_point_of_sale_id,
+      movement_type: MovementType.TRANSFER_IN,
+      quantity: dto.quantity,
+      unit_cost: dto.unit_cost,
+      reason: dto.reason ?? `Transfert depuis PV ${dto.from_point_of_sale_id}`,
+      reference_table: 'inventory_transfers',
+      reference_id: outRow.id,
+      performed_by: userId,
+    });
+
+    return { out_id: outRow.id, in_id: inRow.id };
   }
 
   /**

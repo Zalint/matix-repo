@@ -64,6 +64,7 @@ describe('Inventory — multi-tenant isolation + trigger', () => {
       SELECT id FROM products WHERE sku LIKE 'ITEST-INV-%')`);
     await adminPool.query(`DELETE FROM products WHERE sku LIKE 'ITEST-INV-%'`);
     await adminPool.query(`DELETE FROM points_of_sale WHERE code LIKE 'itest-inv-%'`);
+    await adminPool.query(`DELETE FROM points_of_sale WHERE code = 'itest-inv-a-bis'`);
     await app.close();
   });
 
@@ -170,6 +171,68 @@ describe('Inventory — multi-tenant isolation + trigger', () => {
       .set(headers(TENANT_B, USER_B))
       .expect(200);
     expect(movements.body.find((m: { reason: string | null }) => m.reason === 'ITEST-opening-A')).toBeUndefined();
+  });
+
+  it('Transfert inter-PV : décrémente source, incrémente cible (atomic)', async () => {
+    // Setup : 2e PV pour TENANT_A
+    const posA2 = (await adminPool.query<{ id: string }>(
+      `INSERT INTO points_of_sale (tenant_id, code, name) VALUES ($1, 'itest-inv-a-bis', 'PV A bis') ON CONFLICT (tenant_id, code) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
+      [TENANT_A],
+    )).rows[0].id;
+
+    // Stock 60 au PV principal (déjà 43 du test précédent + on en a déjà eu 43 puis +3 puis -10... let's just check)
+    const before = await request(app.getHttpServer())
+      .get(`/inventory/levels?product_id=${prodA}`)
+      .set(headers(TENANT_A, USER_A));
+    const sourceQtyBefore = Number(before.body.find((l: { point_of_sale_id: string }) => l.point_of_sale_id === posA).quantity_on_hand);
+
+    // Transfert de 5 unités
+    await request(app.getHttpServer())
+      .post('/inventory/transfers')
+      .set(headers(TENANT_A, USER_A))
+      .send({
+        product_id: prodA,
+        from_point_of_sale_id: posA,
+        to_point_of_sale_id: posA2,
+        quantity: 5,
+        reason: 'ITEST-transfer',
+      })
+      .expect(201);
+
+    const after = await request(app.getHttpServer())
+      .get(`/inventory/levels?product_id=${prodA}`)
+      .set(headers(TENANT_A, USER_A));
+    const sourceQtyAfter = Number(after.body.find((l: { point_of_sale_id: string }) => l.point_of_sale_id === posA).quantity_on_hand);
+    const targetQtyAfter = Number(after.body.find((l: { point_of_sale_id: string }) => l.point_of_sale_id === posA2).quantity_on_hand);
+
+    expect(sourceQtyAfter).toBe(sourceQtyBefore - 5);
+    expect(targetQtyAfter).toBe(5);
+  });
+
+  it('Transfert même PV → 400', async () => {
+    await request(app.getHttpServer())
+      .post('/inventory/transfers')
+      .set(headers(TENANT_A, USER_A))
+      .send({
+        product_id: prodA,
+        from_point_of_sale_id: posA,
+        to_point_of_sale_id: posA,
+        quantity: 1,
+      })
+      .expect(400);
+  });
+
+  it('Transfert avec stock insuffisant → 400', async () => {
+    await request(app.getHttpServer())
+      .post('/inventory/transfers')
+      .set(headers(TENANT_A, USER_A))
+      .send({
+        product_id: prodA,
+        from_point_of_sale_id: posA,
+        to_point_of_sale_id: '00000000-0000-4000-8000-000000000000',
+        quantity: 99999,
+      })
+      .expect(400);
   });
 
   it('Adjustment peut être positif ou négatif (pas de check de signe)', async () => {

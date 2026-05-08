@@ -1,4 +1,4 @@
-import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 
 export enum MovementType {
   OPENING = 'opening',
@@ -8,6 +8,15 @@ export enum MovementType {
   TRANSFER_IN = 'transfer_in',
   TRANSFER_OUT = 'transfer_out',
   CLOSING = 'closing',
+}
+
+export class CreateTransferDto {
+  @IsUUID() product_id!: string;
+  @IsUUID() from_point_of_sale_id!: string;
+  @IsUUID() to_point_of_sale_id!: string;
+  @IsNumber() @Min(0.001) quantity!: number;
+  @IsOptional() @IsNumber() unit_cost?: number;
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
 export class RecordMovementDto {

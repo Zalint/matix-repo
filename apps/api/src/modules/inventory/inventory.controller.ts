@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
-import { RecordMovementDto } from './dto/record-movement.dto';
+import { CreateTransferDto, RecordMovementDto } from './dto/record-movement.dto';
 
 @Controller('inventory')
 export class InventoryController {
@@ -38,5 +38,11 @@ export class InventoryController {
   @Post('movements')
   recordMovement(@Body() dto: RecordMovementDto) {
     return this.inv.recordMovement(dto);
+  }
+
+  /** Transfert atomique entre deux PV. */
+  @Post('transfers')
+  recordTransfer(@Body() dto: CreateTransferDto) {
+    return this.inv.recordTransfer(dto);
   }
 }

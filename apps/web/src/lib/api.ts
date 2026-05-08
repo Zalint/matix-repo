@@ -116,6 +116,42 @@ export type Customer = {
   updated_at: string;
 };
 
+export type StockLevel = {
+  id: string;
+  product_id: string;
+  point_of_sale_id: string;
+  quantity_on_hand: string;
+  quantity_reserved: string;
+  updated_at: string;
+};
+
+export type MovementType = 'opening' | 'closing' | 'sale' | 'return' | 'adjustment' | 'transfer_in' | 'transfer_out';
+
+export type StockMovement = {
+  id: string;
+  product_id: string;
+  point_of_sale_id: string;
+  movement_type: MovementType;
+  quantity: string;
+  unit_cost: string | null;
+  reference_table: string | null;
+  reference_id: string | null;
+  reason: string | null;
+  performed_by: string | null;
+  performed_at: string;
+};
+
+export type PointOfSale = {
+  id: string;
+  code: string;
+  name: string;
+  address: string | null;
+  phone: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 /**
  * Endpoints admin plateforme (sans tenant context — pas de Bearer requis Phase 0).
  * Phase 1 : à protéger côté API par AuthGuard "super-admin Matix".
@@ -142,6 +178,50 @@ export const api = {
       apiFetch<Product>(a, `/products/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     remove: (a: AuthState, id: string) =>
       apiFetch<void>(a, `/products/${id}`, { method: 'DELETE' }),
+  },
+  pointsOfSale: {
+    list: (a: AuthState, opts?: { activeOnly?: boolean }) =>
+      apiFetch<PointOfSale[]>(a, `/points-of-sale${opts?.activeOnly ? '?active_only=true' : ''}`),
+  },
+  inventory: {
+    levels: (a: AuthState, opts?: { product_id?: string; point_of_sale_id?: string }) => {
+      const qs = new URLSearchParams();
+      if (opts?.product_id) qs.set('product_id', opts.product_id);
+      if (opts?.point_of_sale_id) qs.set('point_of_sale_id', opts.point_of_sale_id);
+      return apiFetch<StockLevel[]>(a, `/inventory/levels${qs.toString() ? '?' + qs : ''}`);
+    },
+    movements: (a: AuthState, opts?: { product_id?: string; point_of_sale_id?: string; limit?: number }) => {
+      const qs = new URLSearchParams();
+      if (opts?.product_id) qs.set('product_id', opts.product_id);
+      if (opts?.point_of_sale_id) qs.set('point_of_sale_id', opts.point_of_sale_id);
+      if (opts?.limit) qs.set('limit', String(opts.limit));
+      return apiFetch<StockMovement[]>(a, `/inventory/movements${qs.toString() ? '?' + qs : ''}`);
+    },
+    recordMovement: (
+      a: AuthState,
+      body: {
+        product_id: string;
+        point_of_sale_id: string;
+        movement_type: 'opening' | 'closing' | 'adjustment' | 'return';
+        quantity: number;
+        unit_cost?: number;
+        reason?: string;
+      },
+    ) => apiFetch<StockMovement>(a, '/inventory/movements', { method: 'POST', body: JSON.stringify(body) }),
+    transfer: (
+      a: AuthState,
+      body: {
+        product_id: string;
+        from_point_of_sale_id: string;
+        to_point_of_sale_id: string;
+        quantity: number;
+        reason?: string;
+      },
+    ) =>
+      apiFetch<{ out_id: string; in_id: string }>(a, '/inventory/transfers', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
   },
   customers: {
     list: (a: AuthState, search?: string) =>
