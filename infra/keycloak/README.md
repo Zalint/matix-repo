@@ -17,33 +17,68 @@ docker compose --profile full up -d keycloak
 
 1. Télécharger Keycloak 25.x : https://www.keycloak.org/downloads
 2. Installer **OpenJDK 17+** (Microsoft, Eclipse Temurin, Azul Zulu).
-3. Décompresser, puis :
+   - Sur Windows : `winget install -e --id Microsoft.OpenJDK.17 --silent --accept-source-agreements --accept-package-agreements` (le scope user fonctionne et installe sous `%LOCALAPPDATA%\Programs\Microsoft\jdk-17.x.x.x-hotspot\`)
+   - Set `JAVA_HOME` permanent : `[Environment]::SetEnvironmentVariable('JAVA_HOME', '<path>', 'User')`
+3. Décompresser Keycloak, puis :
+
 ```powershell
-$env:KC_BOOTSTRAP_ADMIN_USERNAME = 'admin'
-$env:KC_BOOTSTRAP_ADMIN_PASSWORD = 'admin'
-.\bin\kc.bat start-dev
+# IMPORTANT : Keycloak 25 utilise KEYCLOAK_ADMIN/_PASSWORD (les KC_BOOTSTRAP_ADMIN_* sont pour Keycloak 26+)
+$env:KEYCLOAK_ADMIN = 'admin'
+$env:KEYCLOAK_ADMIN_PASSWORD = 'admin'
+$env:JAVA_HOME = '<chemin JDK 17>'
+$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+cd <keycloak-25.0.6>
+# Si port 8080 déjà occupé chez toi, change-le ici
+.\bin\kc.bat start-dev --http-port=8180
 ```
+
+> **Note** : si la première tentative échoue (port en conflit, etc.), supprime `data/` AVANT de relancer — sinon le bootstrap admin est skippé car le master realm existe déjà.
 
 ## Importer le realm
 
 Une fois Keycloak en route et l'admin connecté à http://localhost:8080 :
 
-### Via UI
+### Via UI (le plus simple)
 
-1. Connexion → menu déroulant en haut à gauche → **Create realm**.
+1. Login http://localhost:8180/admin (admin/admin) → menu déroulant en haut à gauche → **Create realm**.
 2. Section **Resource file** → upload `realm-matix.json`.
 3. **Create**.
 
-### Via CLI (`kcadm`)
+### Via REST API (testé sur Windows, plus fiable que kcadm.bat)
 
-```bash
-# Auth admin
-./bin/kcadm.sh config credentials --server http://localhost:8080 \
-  --realm master --user admin --password admin
+```powershell
+# 1. Récupère un token admin
+$body = @{ grant_type='password'; client_id='admin-cli'; username='admin'; password='admin' }
+$token = (Invoke-RestMethod -Method POST -Uri "http://localhost:8180/realms/master/protocol/openid-connect/token" -ContentType "application/x-www-form-urlencoded" -Body $body).access_token
 
-# Import realm
-./bin/kcadm.sh create realms -f infra/keycloak/realm-matix.json
+# 2. POST le realm
+curl.exe -X POST "http://localhost:8180/admin/realms" `
+  -H "Authorization: Bearer $token" `
+  -H "Content-Type: application/json" `
+  --data-binary "@C:\Mata\Matix2.0\infra\keycloak\realm-matix.json"
+# → HTTP 201
+
+# 3. Vérifie
+curl.exe -s -H "Authorization: Bearer $token" "http://localhost:8180/admin/realms/matix" | ConvertFrom-Json | Select-Object realm, enabled
 ```
+
+### Aligner les user_id Keycloak avec tenant_members
+
+Keycloak génère un `sub` UUID par user qui n'est PAS celui du seed dev. Pour que le check defense-in-depth de l'API passe en mode `keycloak`, il faut ajouter ces sub à `tenant_members` :
+
+```powershell
+# Récupère le sub du token user
+$body = @{ grant_type='password'; client_id='matix-web'; username='owner@acme.test'; password='acme-dev-password' }
+$tok = Invoke-RestMethod -Method POST -Uri "http://localhost:8180/realms/matix/protocol/openid-connect/token" -ContentType "application/x-www-form-urlencoded" -Body $body
+# Décode la 2e partie du JWT pour avoir 'sub' — voir scripts/decode-jwt.ps1 (à venir)
+
+# Insert dans tenant_members
+$env:PGPASSWORD='matix_admin_dev'
+& "C:\Program Files\PostgreSQL\17\bin\psql.exe" -h localhost -U matix_admin -d matix `
+  -c "INSERT INTO tenant_members (tenant_id, user_id, email, role) VALUES ('<TENANT_UUID>', '<KEYCLOAK_SUB>', 'owner@acme.test', 'owner') ON CONFLICT DO NOTHING;"
+```
+
+⚠️ Phase 1 fix attendu : table `users` (id Matix interne, keycloak_sub nullable) — voir backlog. En l'état, dev mode et keycloak mode coexistent en ajoutant les 2 user_id distincts à tenant_members.
 
 ## Vérifier
 
