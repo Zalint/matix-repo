@@ -76,12 +76,13 @@ INSERT INTO plans (code, name, monthly_price_xof, modules) VALUES
     'commercial.sales.pos',
     'operations.inventory.levels','operations.inventory.movements'
   ]),
+  -- starter: ajout cash_closure et unit_conversion (post-audit ADR-0007)
   ('starter', 'Starter', 15000, ARRAY[
     'platform.identity','platform.team','platform.settings','platform.notifications','platform.files','platform.audit','platform.snapshots',
     'commercial.crm.customers','commercial.crm.tags','commercial.crm.credits',
     'commercial.sales.pos','commercial.sales.cash_closure','commercial.sales.reconciliation','commercial.sales.discounts',
     'commercial.pricing.lists','commercial.pricing.history',
-    'operations.inventory.levels','operations.inventory.movements','operations.inventory.transfers','operations.inventory.alerts','operations.inventory.counts',
+    'operations.inventory.levels','operations.inventory.movements','operations.inventory.transfers','operations.inventory.alerts','operations.inventory.counts','operations.inventory.unit_conversion',
     'finance.invoicing.tickets',
     'finance.payments.mobile_money','finance.payments.cash',
     'analytics.dashboards.sales','analytics.dashboards.inventory',
@@ -90,12 +91,12 @@ INSERT INTO plans (code, name, monthly_price_xof, modules) VALUES
   ('pro', 'Pro', 50000, ARRAY[
     'platform.identity','platform.team','platform.settings','platform.notifications','platform.files','platform.audit','platform.snapshots','platform.api_keys','platform.webhooks',
     'commercial.crm.customers','commercial.crm.segments','commercial.crm.tags','commercial.crm.credits','commercial.crm.communications',
-    'commercial.sales.pos','commercial.sales.cash_closure','commercial.sales.reconciliation','commercial.sales.discounts','commercial.sales.loyalty',
+    'commercial.sales.pos','commercial.sales.cash_closure','commercial.sales.reconciliation','commercial.sales.performance_audit','commercial.sales.discounts','commercial.sales.loyalty',
     'commercial.subscriptions.plans','commercial.subscriptions.billing',
     'commercial.pricing.lists','commercial.pricing.history','commercial.pricing.promotions',
     'operations.inventory.levels','operations.inventory.movements','operations.inventory.transfers','operations.inventory.valuation','operations.inventory.alerts','operations.inventory.counts','operations.inventory.livestock',
     'operations.procurement.purchase_orders','operations.procurement.suppliers','operations.procurement.receiving','operations.procurement.slaughter',
-    'operations.delivery.orders','operations.delivery.drivers','operations.delivery.gps','operations.delivery.routes','operations.delivery.scoring',
+    'operations.delivery.orders','operations.delivery.drivers','operations.delivery.gps','operations.delivery.routes','operations.delivery.scoring','operations.delivery.proof_of_delivery','operations.delivery.bidirectional_ratings',
     'operations.hr.timesheets','operations.hr.expenses','operations.hr.schedules',
     'finance.accounting.gl','finance.accounting.statements','finance.accounting.tax',
     'finance.expenses.entry','finance.expenses.approval','finance.expenses.ocr',
@@ -107,7 +108,7 @@ INSERT INTO plans (code, name, monthly_price_xof, modules) VALUES
     'finance.partners.accounts','finance.partners.deliveries',
     'analytics.dashboards.sales','analytics.dashboards.inventory','analytics.dashboards.finance',
     'analytics.reports.standard','analytics.reports.scheduled',
-    'analytics.ai.insights',
+    'analytics.ai.insights','analytics.market_intelligence',
     'analytics.exports.csv','analytics.exports.excel','analytics.exports.pdf'
   ]),
   ('enterprise', 'Enterprise', 0 /* sur devis */, ARRAY[]::TEXT[])

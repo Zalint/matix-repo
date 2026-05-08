@@ -12,6 +12,7 @@ export type ModuleDefinition = {
   code: string;
   pillar: Pillar;
   label: { fr: string; en: string };
+  /** Description métier détaillée — règles, formules, invariants. Voir docs/business-rules-catalog.md pour les pépites. */
   description_fr?: string;
   actions: ModuleAction[];
   status: 'active' | 'beta' | 'coming-soon';
@@ -41,7 +42,8 @@ export const MODULE_CATALOG: ModuleDefinition[] = [
 
   { code: 'commercial.sales.pos',              pillar: 'commercial', label: { fr: 'Caisse / POS',             en: 'Point of sale' },      actions: ['read','write','delete'], status: 'active' },
   { code: 'commercial.sales.cash_closure',     pillar: 'commercial', label: { fr: 'Clôture de caisse',        en: 'Cash closure' },       actions: ['read','write'],          status: 'coming-soon' },
-  { code: 'commercial.sales.reconciliation',   pillar: 'commercial', label: { fr: 'Réconciliation ventes',    en: 'Sales reconciliation' },actions: ['read','write'],          status: 'coming-soon' },
+  { code: 'commercial.sales.reconciliation',   pillar: 'commercial', label: { fr: 'Réconciliation ventes',    en: 'Sales reconciliation' },actions: ['read','write'],          status: 'coming-soon', description_fr: 'Comparaison ventes théoriques (stock matin − stock soir + transferts) vs ventes saisies. Formule "Pération" spéciale pour PV abattage : (Ventes Théoriques / Stock Matin) × 100.' },
+  { code: 'commercial.sales.performance_audit',pillar: 'commercial', label: { fr: 'Audit performance achats',  en: 'Procurement performance audit' }, actions: ['read','write','delete'], status: 'coming-soon', description_fr: 'Audit acheteurs : compare estimations vs poids réel ; pénalité 2× pour surestimation ; cohérence ±0.5kg vs Suivi Achat ; verrouillage 24h ; classement avec score pénalisé.' },
   { code: 'commercial.sales.discounts',        pillar: 'commercial', label: { fr: 'Remises et codes promo',   en: 'Discounts & promos' }, actions: ['read','write','delete'], status: 'coming-soon' },
   { code: 'commercial.sales.loyalty',          pillar: 'commercial', label: { fr: 'Cartes de fidélité',       en: 'Loyalty cards' },      actions: ['read','write','delete'], status: 'coming-soon' },
 
@@ -59,7 +61,8 @@ export const MODULE_CATALOG: ModuleDefinition[] = [
   { code: 'operations.inventory.valuation',    pillar: 'operations', label: { fr: 'Valorisation stock',       en: 'Stock valuation' },    actions: ['read'],                  status: 'coming-soon' },
   { code: 'operations.inventory.alerts',       pillar: 'operations', label: { fr: 'Alertes seuils',           en: 'Stock alerts' },       actions: ['read','write'],          status: 'coming-soon' },
   { code: 'operations.inventory.counts',       pillar: 'operations', label: { fr: 'Inventaires physiques',    en: 'Physical counts' },    actions: ['read','write'],          status: 'coming-soon' },
-  { code: 'operations.inventory.livestock',    pillar: 'operations', label: { fr: 'Stock vivant',             en: 'Livestock' },          actions: ['read','write','delete'], status: 'coming-soon' },
+  { code: 'operations.inventory.livestock',    pillar: 'operations', label: { fr: 'Stock vivant',             en: 'Livestock' },          actions: ['read','write','delete'], status: 'coming-soon', description_fr: 'Animaux vivants & aliments : décote 20% par défaut ; UNIQUE(date, catégorie, produit) — pas de doublons.' },
+  { code: 'operations.inventory.unit_conversion', pillar: 'operations', label: { fr: 'Conversion unité ↔ kg',  en: 'Unit-to-weight conversion' }, actions: ['read','write'],          status: 'coming-soon', description_fr: 'Conversion unité→kg HISTORISÉE par date (ex: bœuf=150kg/unité). Si poids standard change rétroactivement, les estimations gardent l\'ancien paramètre. Indispensable secteurs viande/agro.' },
 
   { code: 'operations.procurement.purchase_orders', pillar: 'operations', label: { fr: 'Bons de commande',     en: 'Purchase orders' },    actions: ['read','write','delete'], status: 'coming-soon' },
   { code: 'operations.procurement.suppliers',       pillar: 'operations', label: { fr: 'Fournisseurs',          en: 'Suppliers' },          actions: ['read','write','delete'], status: 'coming-soon' },
@@ -70,7 +73,9 @@ export const MODULE_CATALOG: ModuleDefinition[] = [
   { code: 'operations.delivery.drivers',       pillar: 'operations', label: { fr: 'Livreurs',                 en: 'Drivers' },            actions: ['read','write','delete'], status: 'coming-soon' },
   { code: 'operations.delivery.gps',           pillar: 'operations', label: { fr: 'GPS / géofencing',         en: 'GPS / geofencing' },   actions: ['read','write'],          status: 'coming-soon' },
   { code: 'operations.delivery.routes',        pillar: 'operations', label: { fr: 'Tournées',                 en: 'Routes' },             actions: ['read','write'],          status: 'coming-soon' },
-  { code: 'operations.delivery.scoring',       pillar: 'operations', label: { fr: 'Scoring livreurs',         en: 'Driver scoring' },     actions: ['read'],                  status: 'coming-soon' },
+  { code: 'operations.delivery.scoring',       pillar: 'operations', label: { fr: 'Scoring livreurs',         en: 'Driver scoring' },     actions: ['read'],                  status: 'coming-soon', description_fr: 'Score multi-dimensionnel : (bénéfice × 0.0003) + (km × KM_WEIGHT) + (pointages × 0.5). Cumul quotidien.' },
+  { code: 'operations.delivery.proof_of_delivery', pillar: 'operations', label: { fr: 'Preuve de livraison', en: 'Proof of delivery' }, actions: ['read','write'],            status: 'coming-soon', description_fr: 'Signature client + photo geo-taggée + timestamp à la livraison. Stockage sécurisé conforme.' },
+  { code: 'operations.delivery.bidirectional_ratings', pillar: 'operations', label: { fr: 'Évaluations bidirectionnelles', en: 'Bidirectional ratings' }, actions: ['read','write'], status: 'coming-soon', description_fr: 'Livreur évalue client (risque, comportement, paiement) — symétrique des ratings clients (service/qualité/prix).' },
 
   { code: 'operations.hr.timesheets',          pillar: 'operations', label: { fr: 'Pointages',                en: 'Timesheets' },         actions: ['read','write'],          status: 'coming-soon' },
   { code: 'operations.hr.expenses',            pillar: 'operations', label: { fr: 'Dépenses agent',           en: 'Agent expenses' },     actions: ['read','write','delete'], status: 'coming-soon' },
@@ -96,7 +101,7 @@ export const MODULE_CATALOG: ModuleDefinition[] = [
   { code: 'finance.invoicing.credit_notes',    pillar: 'finance', label: { fr: 'Avoirs',                     en: 'Credit notes' },          actions: ['read','write'],          status: 'coming-soon' },
   { code: 'finance.invoicing.pdf',             pillar: 'finance', label: { fr: 'Génération PDF',             en: 'PDF rendering' },         actions: ['read'],                  status: 'coming-soon' },
 
-  { code: 'finance.banking.accounts',          pillar: 'finance', label: { fr: 'Comptes bancaires',          en: 'Bank accounts' },         actions: ['read','write','delete'], status: 'coming-soon' },
+  { code: 'finance.banking.accounts',          pillar: 'finance', label: { fr: 'Comptes bancaires',          en: 'Bank accounts' },         actions: ['read','write','delete'], status: 'coming-soon', description_fr: '4 types — classique (solde = crédité − dépensé), partenaire (décrémenté par livraisons validées), statut (lecture-seule, exclu transferts), ajustement/special (isolé du P&L).' },
   { code: 'finance.banking.reconciliation',    pillar: 'finance', label: { fr: 'Rapprochement bancaire',     en: 'Bank reconciliation' },   actions: ['read','write'],          status: 'coming-soon' },
   { code: 'finance.banking.transfers',         pillar: 'finance', label: { fr: 'Virements',                  en: 'Bank transfers' },        actions: ['read','write','delete'], status: 'coming-soon' },
 
@@ -119,6 +124,7 @@ export const MODULE_CATALOG: ModuleDefinition[] = [
 
   { code: 'analytics.ai.insights',             pillar: 'analytics', label: { fr: 'Insights IA',              en: 'AI insights' },           actions: ['read'],                  status: 'coming-soon' },
   { code: 'analytics.ai.forecasting',          pillar: 'analytics', label: { fr: 'Prévisions IA',            en: 'AI forecasting' },        actions: ['read'],                  status: 'coming-soon' },
+  { code: 'analytics.market_intelligence',     pillar: 'analytics', label: { fr: 'Veille marché',            en: 'Market intelligence' },   actions: ['read'],                  status: 'coming-soon', description_fr: 'RSS actualités fournisseurs (Mali/Mauritanie pour bétail) + OpenAI GPT alertes : fermetures frontières, sécheresse, variations prix régionaux, risques approvisionnement. Cache 12h.' },
 
   { code: 'analytics.exports.excel',           pillar: 'analytics', label: { fr: 'Export Excel',             en: 'Excel export' },          actions: ['read'],                  status: 'coming-soon' },
   { code: 'analytics.exports.csv',             pillar: 'analytics', label: { fr: 'Export CSV',               en: 'CSV export' },            actions: ['read'],                  status: 'coming-soon' },
