@@ -76,6 +76,32 @@ export type ProvisionTenantInput = {
   };
 };
 
+export type TenantRole = 'owner' | 'admin' | 'superviseur' | 'member' | 'readonly';
+
+export const ROLE_LABELS: Record<TenantRole, string> = {
+  owner: 'Propriétaire',
+  admin: 'Administrateur',
+  superviseur: 'Superviseur',
+  member: 'Membre',
+  readonly: 'Lecture seule',
+};
+
+export type TeamMember = {
+  user_id: string;
+  email: string;
+  role: TenantRole;
+  created_at: string;
+  deactivated_at: string | null;
+};
+
+export type CreateMemberInput = {
+  email: string;
+  first_name: string;
+  last_name: string;
+  password: string;
+  role: TenantRole;
+};
+
 export type Customer = {
   id: string;
   code: string;
@@ -137,5 +163,17 @@ export const api = {
           message: string;
         }>('/admin/tenants', { method: 'POST', body: JSON.stringify(body) }),
     },
+  },
+  team: {
+    list: (a: AuthState) => apiFetch<TeamMember[]>(a, '/team'),
+    create: (a: AuthState, body: CreateMemberInput) =>
+      apiFetch<TeamMember>(a, '/team', { method: 'POST', body: JSON.stringify(body) }),
+    updateRole: (a: AuthState, userId: string, role: TenantRole) =>
+      apiFetch<TeamMember>(a, `/team/${userId}/role`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      }),
+    remove: (a: AuthState, userId: string) =>
+      apiFetch<void>(a, `/team/${userId}`, { method: 'DELETE' }),
   },
 };
