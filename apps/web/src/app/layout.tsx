@@ -9,8 +9,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="fr">
-      <body>
+    // suppressHydrationWarning : neutralise les attributs injectés par les extensions
+    // Chrome (Grammarly `data-new-gr-c-s-*`, LanguageTool `data-lt-installed`, etc.)
+    // qui causent des hydration mismatches sans impact fonctionnel.
+    <html lang="fr" suppressHydrationWarning>
+      <body suppressHydrationWarning>
         <TenantProvider>{children}</TenantProvider>
       </body>
     </html>
