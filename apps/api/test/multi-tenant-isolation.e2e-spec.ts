@@ -11,16 +11,16 @@
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import * as request from 'supertest';
+import request from 'supertest';
 import { Pool } from 'pg';
 
 import { AppModule } from '../src/app.module';
 import { ADMIN_PG_POOL } from '../src/common/database.module';
 
-const TENANT_A = '11111111-1111-1111-1111-111111111111'; // acme
-const USER_A = '11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-const TENANT_B = '22222222-2222-2222-2222-222222222222'; // beta
-const USER_B = '22222222-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+const TENANT_A = 'a1111111-1111-4111-8111-111111111111'; // acme
+const USER_A = 'a1111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const TENANT_B = 'b2222222-2222-4222-8222-222222222222'; // beta
+const USER_B = 'b2222222-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 describe('Multi-tenant isolation (RLS)', () => {
   let app: INestApplication;

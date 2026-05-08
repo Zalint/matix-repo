@@ -9,17 +9,18 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
+import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { ProductsService } from './products.service';
 
 class CreateProductDto {
-  sku!: string;
-  name!: string;
-  unit_price!: number;
+  @IsString() sku!: string;
+  @IsString() name!: string;
+  @IsNumber() @Min(0) unit_price!: number;
 }
 
 class UpdateProductDto {
-  name?: string;
-  unit_price?: number;
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsNumber() @Min(0) unit_price?: number;
 }
 
 @Controller('products')
