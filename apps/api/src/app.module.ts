@@ -11,6 +11,7 @@ import { extractAuthContext } from './common/auth/extract-context';
 import { LoggerModule } from './common/logger/logger.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { HealthModule } from './modules/health/health.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
 import { PointsOfSaleModule } from './modules/points-of-sale/points-of-sale.module';
 import { ProductsModule } from './modules/products/products.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
@@ -63,6 +64,7 @@ import { TenantsModule } from './modules/tenants/tenants.module';
     ProductsModule,
     CustomersModule,
     PointsOfSaleModule,
+    InventoryModule,
   ],
   providers: [
     {
