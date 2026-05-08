@@ -1,0 +1,53 @@
+{
+  "common": {
+    "loading": "Chargement…",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "search": "Rechercher",
+    "new": "Nouveau",
+    "yes": "Oui",
+    "no": "Non",
+    "logout": "Déconnexion"
+  },
+  "nav": {
+    "dashboard": "Tableau de bord",
+    "products": "Produits",
+    "customers": "Clients",
+    "administration": "Administration",
+    "tenants": "Tenants"
+  },
+  "auth": {
+    "login_title": "Matix",
+    "login_subtitle": "Suite SaaS B2B",
+    "login_intro": "Connecte-toi avec ton compte Matix pour accéder à ton espace.",
+    "login_button": "Se connecter",
+    "login_no_account": "Tu n'as pas encore de compte ? Demande à l'administrateur de ton organisation."
+  },
+  "dashboard": {
+    "title": "Tableau de bord",
+    "stat_products": "Produits",
+    "stat_customers": "Clients",
+    "stat_active_modules": "Modules actifs",
+    "subtitle_keycloak": "Authentification réelle via Keycloak (OIDC). Le tenant courant vient de la claim JWT.",
+    "subtitle_dev": "Auth simulée via headers X-Dev-Tenant-Id. Bascule de tenant via le dropdown en haut à droite."
+  },
+  "products": {
+    "title": "Produits",
+    "new": "Nouveau produit",
+    "empty": "Aucun produit",
+    "col_sku": "SKU",
+    "col_name": "Nom",
+    "col_price": "Prix unitaire"
+  },
+  "customers": {
+    "title": "Clients",
+    "new": "Nouveau client",
+    "empty": "Aucun client",
+    "search_placeholder": "Rechercher (nom, code, téléphone)…",
+    "col_code": "Code",
+    "col_name": "Nom",
+    "col_phone": "Téléphone",
+    "col_segment": "Segment"
+  }
+}

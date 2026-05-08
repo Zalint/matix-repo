@@ -7,12 +7,18 @@ import { auth } from '@/auth';
  */
 export default auth((req) => {
   const { pathname } = req.nextUrl;
-  const isAuthRoute = pathname.startsWith('/api/auth') || pathname === '/login';
+
+  // Routes publiques (pas d'auth requise)
+  const isPublicRoute =
+    pathname.startsWith('/api/auth') ||      // NextAuth
+    pathname === '/api/locale' ||            // switch de locale
+    pathname === '/login';
+
   const devBypass = process.env.NEXT_PUBLIC_AUTH_MODE === 'dev';
 
   if (devBypass) return; // Phase 0 dev : pas d'auth requise
 
-  if (!req.auth && !isAuthRoute) {
+  if (!req.auth && !isPublicRoute) {
     const loginUrl = new URL('/login', req.url);
     loginUrl.searchParams.set('callbackUrl', pathname);
     return Response.redirect(loginUrl);

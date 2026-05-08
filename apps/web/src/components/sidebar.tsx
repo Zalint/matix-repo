@@ -2,20 +2,18 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
-
-const NAV = [
-  { href: '/dashboard', label: 'Tableau de bord' },
-  { href: '/products', label: 'Produits' },
-  { href: '/customers', label: 'Clients' },
-];
-
-const ADMIN_NAV = [
-  { href: '/admin/tenants', label: 'Tenants' },
-];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const t = useTranslations('nav');
+  const NAV = [
+    { href: '/dashboard', label: t('dashboard') },
+    { href: '/products', label: t('products') },
+    { href: '/customers', label: t('customers') },
+  ];
+  const ADMIN_NAV = [{ href: '/admin/tenants', label: t('tenants') }];
   return (
     <aside className="w-56 shrink-0 border-r border-gray-200 bg-white">
       <div className="px-4 py-5">
@@ -42,7 +40,7 @@ export function Sidebar() {
         })}
 
         <div className="mt-6 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-          Administration
+          {t('administration')}
         </div>
         {ADMIN_NAV.map((item) => {
           const active = pathname?.startsWith(item.href);
