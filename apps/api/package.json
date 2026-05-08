@@ -13,7 +13,8 @@
     "test:e2e": "jest --config jest-e2e.config.js --runInBand",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
-    "db:seed:maas": "tsx src/db/seed-from-maas.ts"
+    "db:seed:maas": "tsx src/db/seed-from-maas.ts",
+    "db:seed:kc-users": "tsx src/db/seed-keycloak-users.ts"
   },
   "dependencies": {
     "@keycloak/keycloak-admin-client": "^26.6.1",
