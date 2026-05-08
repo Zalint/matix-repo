@@ -7,6 +7,7 @@ import { validate as isUuid } from 'uuid';
 import { DatabaseModule } from './common/database.module';
 import { TenantTxInterceptor } from './common/tenant-tx.interceptor';
 
+import { CustomersModule } from './modules/customers/customers.module';
 import { ProductsModule } from './modules/products/products.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 
@@ -59,6 +60,7 @@ import { TenantsModule } from './modules/tenants/tenants.module';
     DatabaseModule,
     TenantsModule,
     ProductsModule,
+    CustomersModule,
   ],
   providers: [
     {

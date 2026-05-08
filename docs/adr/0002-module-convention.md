@@ -1,6 +1,6 @@
 # ADR-0002 — Convention de structure d'un module
 
-- **Statut** : Proposed
+- **Statut** : Accepted (validée par module CRM Customers — voir migration `0003_customers_init.sql`)
 - **Date** : 2026-05-08
 - **Décideurs** : Saliou Doucouré, équipe technique Matix
 - **Référence** : implémente concrètement les principes posés par [ADR-0001](0001-multi-tenancy-rls.md)
