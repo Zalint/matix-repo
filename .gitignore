@@ -9,6 +9,12 @@ build/
 .turbo/
 *.tsbuildinfo
 
+# TS compilation artefacts in source/test dirs (only ts-jest in-memory should run there)
+apps/**/test/**/*.js
+apps/**/test/**/*.d.ts
+apps/**/src/**/*.js
+apps/**/src/**/*.d.ts
+
 # Env
 .env
 .env.local
