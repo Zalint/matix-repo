@@ -1,10 +1,12 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
+import { Logger as PinoLogger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(PinoLogger));
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
 
   // CORS — Phase 0 dev : autorise localhost:3000 (Next.js).
@@ -13,12 +15,13 @@ async function bootstrap() {
   app.enableCors({
     origin: corsOrigins,
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Dev-Tenant-Id', 'X-Dev-User-Id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Dev-Tenant-Id', 'X-Dev-User-Id', 'X-Request-Id'],
+    exposedHeaders: ['X-Request-Id'],
   });
 
   const port = Number(process.env.API_PORT ?? 3001);
   await app.listen(port);
-  Logger.log(`Matix API démarré sur http://localhost:${port}`, 'Bootstrap');
+  app.get(PinoLogger).log(`Matix API démarré sur http://localhost:${port}`, 'Bootstrap');
 }
 
 bootstrap();

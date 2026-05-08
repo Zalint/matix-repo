@@ -8,7 +8,9 @@ import { ADMIN_PG_POOL, DatabaseModule } from './common/database.module';
 import { TenantTxInterceptor } from './common/tenant-tx.interceptor';
 import { extractAuthContext } from './common/auth/extract-context';
 
+import { LoggerModule } from './common/logger/logger.module';
 import { CustomersModule } from './modules/customers/customers.module';
+import { HealthModule } from './modules/health/health.module';
 import { ProductsModule } from './modules/products/products.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 
@@ -39,8 +41,8 @@ import { TenantsModule } from './modules/tenants/tenants.module';
             if (url.startsWith('/admin/') || url === '/admin' || url.startsWith('/admin?')) {
               return;
             }
-            // Healthcheck route — pas d'auth requise.
-            if (url === '/health' || url === '/healthz') {
+            // Healthcheck routes — pas d'auth requise.
+            if (url === '/health' || url === '/healthz' || url === '/readyz') {
               return;
             }
 
@@ -53,7 +55,9 @@ import { TenantsModule } from './modules/tenants/tenants.module';
         },
       }),
     }),
+    LoggerModule,
     DatabaseModule,
+    HealthModule,
     TenantsModule,
     ProductsModule,
     CustomersModule,
