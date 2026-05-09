@@ -11,7 +11,7 @@
   API + Web tournent en local (Node) avec hot-reload.
 
 .PARAMETER Mode
-  'keycloak' (defaut) : auth reelle via Keycloak (port 8080, Docker).
+  'keycloak' (defaut) : auth reelle via Keycloak (port 8081, Docker).
   'dev' : auth simulee via headers X-Dev-* (Keycloak pas requis cote API).
   Note : Keycloak tourne quand meme dans la stack Docker — c'est gratuit
   niveau ressources et evite de le redemarrer plus tard.
@@ -66,7 +66,7 @@ $PgEnv = @{
   POSTGRES_ADMIN_PASSWORD = 'matix_admin_dev'
 }
 $KcEnv = @{
-  KEYCLOAK_ISSUER         = 'http://localhost:8080/realms/matix'
+  KEYCLOAK_ISSUER         = 'http://localhost:8081/realms/matix'
   KEYCLOAK_AUDIENCE       = 'matix-api'
   KEYCLOAK_ADMIN_USER     = 'admin'
   KEYCLOAK_ADMIN_PASSWORD = 'admin'
@@ -252,7 +252,7 @@ if ($health -ne 'healthy') {
 }
 
 # Wait for Keycloak (dev-mem est rapide ~20-30s au premier boot)
-if (-not (Wait-ForUrl 'http://localhost:8080/realms/matix' 'Keycloak (realm matix)' 120)) {
+if (-not (Wait-ForUrl 'http://localhost:8081/realms/matix' 'Keycloak (realm matix)' 120)) {
   Write-Warn "Keycloak pas pret — il continue de booter en arriere-plan ('docker logs -f matix-keycloak')"
   if ($Mode -eq 'keycloak') {
     Write-Err "Mode keycloak requis mais Keycloak indisponible. Abandon."
@@ -325,8 +325,8 @@ Write-Host "  SERVICES" -ForegroundColor Cyan
 Write-Host "  --------"
 $rows = @()
 $rows += [pscustomobject]@{ Service = 'Postgres'         ; URL = 'localhost:5432'                            ; Source = 'Docker (matix-postgres)' }
-$rows += [pscustomobject]@{ Service = 'Keycloak admin'   ; URL = 'http://localhost:8080/admin'               ; Source = 'Docker (matix-keycloak)' }
-$rows += [pscustomobject]@{ Service = 'Keycloak realm'   ; URL = 'http://localhost:8080/realms/matix/account'; Source = 'Docker (matix-keycloak)' }
+$rows += [pscustomobject]@{ Service = 'Keycloak admin'   ; URL = 'http://localhost:8081/admin'               ; Source = 'Docker (matix-keycloak)' }
+$rows += [pscustomobject]@{ Service = 'Keycloak realm'   ; URL = 'http://localhost:8081/realms/matix/account'; Source = 'Docker (matix-keycloak)' }
 $rows += [pscustomobject]@{ Service = "API ($Mode)"      ; URL = 'http://localhost:3001'                     ; Source = "Fenetre 'Matix - API ($Mode)'" }
 $rows += [pscustomobject]@{ Service = 'API health'       ; URL = 'http://localhost:3001/health'              ; Source = '-' }
 $rows += [pscustomobject]@{ Service = 'API readyz'       ; URL = 'http://localhost:3001/readyz'              ; Source = '-' }
@@ -343,7 +343,7 @@ if ($Mode -eq 'keycloak') {
   Write-Host "  COMPTES DE TEST KEYCLOAK" -ForegroundColor Cyan
   Write-Host "  ------------------------"
   Write-Host "  Realm administrateur Keycloak :"
-  Write-Host "    URL       : http://localhost:8080/admin" -ForegroundColor Gray
+  Write-Host "    URL       : http://localhost:8081/admin" -ForegroundColor Gray
   Write-Host "    Login     : admin / admin" -ForegroundColor Gray
   Write-Host ""
   Write-Host "  Logins Matix (frontend -> /login -> bouton 'Se connecter') :"

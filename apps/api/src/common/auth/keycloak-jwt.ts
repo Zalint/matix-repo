@@ -8,7 +8,7 @@ import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
  * - Vérifie : signature, iss, aud, exp, nbf.
  *
  * Configuration via env :
- *   KEYCLOAK_ISSUER  = http://localhost:8080/realms/matix
+ *   KEYCLOAK_ISSUER  = http://localhost:8081/realms/matix
  *   KEYCLOAK_AUDIENCE = matix-api
  */
 

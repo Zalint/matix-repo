@@ -67,7 +67,7 @@ docker compose stop          # stop Docker
 Tout doit être prêt :
 - API → http://localhost:3001
 - Web → http://localhost:3000
-- Keycloak admin → http://localhost:8080/admin (admin / admin)
+- Keycloak admin → http://localhost:8081/admin (admin / admin)
 - Postgres → `localhost:5432` (matix_admin / matix_admin_dev / db `matix`)
 
 ## Stack Compose
@@ -75,7 +75,7 @@ Tout doit être prêt :
 | Service | Image | Port host | Profile |
 |---|---|---|---|
 | `matix-postgres` | `postgres:17` (Debian) | 5432 | default |
-| `matix-keycloak` | `quay.io/keycloak/keycloak:25.0` | 8080 | default |
+| `matix-keycloak` | `quay.io/keycloak/keycloak:25.0` | 8081 | default |
 | `matix-redis` | `redis:7-alpine` | 6379 | `extras` |
 | `matix-mailhog` | `mailhog/mailhog:latest` | 1025 (SMTP), 8025 (UI) | `extras` |
 | `matix-n8n` | `n8nio/n8n:latest` | 5678 (UI) | `extras` |
@@ -138,7 +138,7 @@ docker compose --profile extras up -d redis mailhog
 | `POSTGRES_ADMIN_PASSWORD` | `matix_admin_dev` | |
 | `POSTGRES_APP_USER` | `matix_app` | utilisé par l'API à runtime (RLS) |
 | `POSTGRES_APP_PASSWORD` | `matix_app_dev` | |
-| `KEYCLOAK_ISSUER` | `http://localhost:8080/realms/matix` | **port 8080 en Docker** (était 8180 en natif) |
+| `KEYCLOAK_ISSUER` | `http://localhost:8081/realms/matix` | **port 8081 en Docker** (port 8080 souvent occupé par Apache/Tomcat ; 8180 en natif legacy) |
 | `AUTH_MODE` | `dev` | `dev` = headers `X-Dev-*`, `keycloak` = JWT Bearer |
 
 Copier `.env.example` → `.env` (root) et `apps/web/.env.local.example` → `apps/web/.env.local` au premier setup.

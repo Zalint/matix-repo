@@ -5,7 +5,7 @@ import Keycloak from 'next-auth/providers/keycloak';
  * Auth.js v5 — config Keycloak.
  *
  * Phase 0 dev :
- *   - Issuer http://localhost:8080/realms/matix
+ *   - Issuer http://localhost:8081/realms/matix
  *   - Client matix-web (confidential, secret en .env.local)
  *   - Callback http://localhost:3000/api/auth/callback/keycloak
  *

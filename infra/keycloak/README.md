@@ -10,7 +10,7 @@ Le `docker-compose.yml` à la racine du repo a déjà un service `keycloak` (pro
 
 ```bash
 docker compose --profile full up -d keycloak
-# → http://localhost:8080  (admin / admin)
+# → http://localhost:8081  (admin / admin)
 ```
 
 ### Option B — ZIP + Java 17 (sans Docker)
@@ -36,7 +36,7 @@ cd <keycloak-25.0.6>
 
 ## Importer le realm
 
-Une fois Keycloak en route et l'admin connecté à http://localhost:8080 :
+Une fois Keycloak en route et l'admin connecté à http://localhost:8081 :
 
 ### Via UI (le plus simple)
 
@@ -109,7 +109,7 @@ Le realm `matix` doit contenir :
 - 2 users : `owner@acme.test` (mdp `acme-dev-password`) + `owner@beta.test` (mdp `beta-dev-password`)
 - Mappers protocoles sur `matix-web` : `tenant_id` + `tenant_ids` + audience
 
-Tester un login : http://localhost:8080/realms/matix/account → s'authentifier en tant qu'`owner@acme.test`.
+Tester un login : http://localhost:8081/realms/matix/account → s'authentifier en tant qu'`owner@acme.test`.
 
 ## Activer Keycloak côté Matix
 
@@ -117,7 +117,7 @@ Tester un login : http://localhost:8080/realms/matix/account → s'authentifier 
 
 ```bash
 AUTH_MODE=keycloak
-KEYCLOAK_ISSUER=http://localhost:8080/realms/matix
+KEYCLOAK_ISSUER=http://localhost:8081/realms/matix
 KEYCLOAK_AUDIENCE=matix-api
 ```
 
@@ -127,7 +127,7 @@ Redémarrer l'API. À partir de là, les requêtes sans `Authorization: Bearer <
 
 ```bash
 NEXT_PUBLIC_AUTH_MODE=keycloak
-KEYCLOAK_ISSUER=http://localhost:8080/realms/matix
+KEYCLOAK_ISSUER=http://localhost:8081/realms/matix
 KEYCLOAK_CLIENT_ID=matix-web
 NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=<random>
@@ -137,7 +137,7 @@ NEXTAUTH_SECRET=<random>
 
 ```bash
 # Récupérer un token
-TOKEN=$(curl -s -X POST http://localhost:8080/realms/matix/protocol/openid-connect/token \
+TOKEN=$(curl -s -X POST http://localhost:8081/realms/matix/protocol/openid-connect/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "grant_type=password" \
   -d "client_id=matix-web" \

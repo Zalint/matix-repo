@@ -117,7 +117,7 @@ Doc complète, troubleshooting et procédures dans **`docs/local-setup.md`**.
 | `owner@acme.test` | `acme-dev-password` | Acme SARL (test) | seed minimal |
 | `owner@beta.test` | `beta-dev-password` | Beta SUARL (test) | (vide) |
 
-Compte admin Keycloak : http://localhost:8080/admin — `admin` / `admin`.
+Compte admin Keycloak : http://localhost:8081/admin — `admin` / `admin`.
 
 ## ADRs publiés
 

@@ -63,7 +63,7 @@ Catastrophe.
 | **Le navigateur** | Chrome/Firefox d'Awa | Sur le PC d'Awa |
 | **Matix-Web** | Le frontend Next.js (`apps/web`) | Sur notre serveur |
 | **Matix-API** | Le backend NestJS (`apps/api`) | Sur notre serveur |
-| **Keycloak** | Le serveur de login dédié | Sur notre serveur (port 8080, conteneur `matix-keycloak`) |
+| **Keycloak** | Le serveur de login dédié | Sur notre serveur (port 8081, conteneur `matix-keycloak`) |
 | **PostgreSQL** | La base de données | Sur notre serveur (port 5432, conteneur `matix-postgres`) |
 
 > **Note infra locale** : en dev, Keycloak et Postgres tournent dans des conteneurs Docker
@@ -520,7 +520,7 @@ X-Dev-User-Id:   awa-uuid
 
 ```bash
 AUTH_MODE=keycloak \
-KEYCLOAK_ISSUER=http://localhost:8080/realms/matix \
+KEYCLOAK_ISSUER=http://localhost:8081/realms/matix \
 KEYCLOAK_AUDIENCE=matix-api \
 pnpm dev
 ```
