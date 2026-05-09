@@ -154,7 +154,9 @@ if ($content -notmatch '(?m)^\s*WORKFLOWS_CRON_ENABLED\s*=') {
 
 # Trim final
 $content = $content.TrimStart()
-Set-Content -Path $EnvFile -Value $content -NoNewline -Encoding UTF8
+# UTF-8 SANS BOM (le BOM colle a la 1ere variable et casse le parsing dotenv-like)
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($EnvFile, $content, $utf8NoBom)
 
 Write-OK "$EnvFile mis a jour"
 
