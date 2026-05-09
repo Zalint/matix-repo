@@ -299,6 +299,24 @@ $apiEnvParts += "`$env:AUTH_MODE='$Mode'"
 if ($Mode -eq 'keycloak') {
   foreach ($k in $KcEnv.Keys) { $apiEnvParts += "`$env:$k='$($KcEnv[$k])'" }
 }
+
+# Merger les vars de apps/api/.env (N8N_*, MATIX_SERVICE_TOKEN, WORKFLOWS_*, etc.)
+# si le fichier existe. NestJS ne charge pas dotenv lui-meme, on doit pousser.
+$apiEnvFile = "$RepoRoot\apps\api\.env"
+if (Test-Path $apiEnvFile) {
+  $envLines = Get-Content $apiEnvFile -Encoding UTF8 | Where-Object { $_ -match '^\s*[A-Z][A-Z0-9_]*\s*=' -and $_ -notmatch '^\s*#' }
+  foreach ($line in $envLines) {
+    if ($line -match '^\s*([A-Z][A-Z0-9_]*)\s*=\s*(.*?)\s*$') {
+      $varName = $matches[1]
+      $varValue = $matches[2] -replace "^['""]|['""]$", ''   # strip quotes optionnelles
+      # Echappe les apostrophes pour la commande PowerShell
+      $escapedValue = $varValue -replace "'", "''"
+      $apiEnvParts += "`$env:$varName='$escapedValue'"
+    }
+  }
+  Write-Info "Variables apps/api/.env mergees ($($envLines.Count) entrees)"
+}
+
 $apiCmd = ($apiEnvParts -join '; ') + "; cd '$RepoRoot'; pnpm --filter @matix/api dev"
 Start-InNewWindow "Matix - API ($Mode)" $apiCmd
 Write-Info "Fenetre 'Matix - API ($Mode)' lancee"
