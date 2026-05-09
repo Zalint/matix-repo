@@ -123,6 +123,36 @@ L'API recoit ce header, valide le token, et applique RLS Postgres avec le tenant
 > [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
 > ```
 
+> **`api_base` envoyé dans le payload webhook n8n** :
+> Comme n8n tourne en Docker mais l'API Matix tourne en natif sur le host (Node `pnpm dev` sur :3001), n8n doit utiliser `http://host.docker.internal:3001` (et **pas** `http://localhost:3001`, qui pointerait vers le conteneur n8n lui-même). Le payload type :
+> ```json
+> {
+>   "tenant_id": "<uuid>",
+>   "api_base": "http://host.docker.internal:3001",
+>   "service_token": "<MATIX_SERVICE_TOKEN>",
+>   "recipients": ["..."]
+> }
+> ```
+
+### n8n API Key (pour appels API Matix → n8n)
+
+```
+N8N_URL=http://localhost:5678        # depuis l'host (API natif)
+N8N_API_KEY=n8n_api_<token>          # à générer manuellement, voir ci-dessous
+```
+
+L'API Matix utilise `N8nClientService` (clone / activate / triggerWebhook) qui appelle `${N8N_URL}/api/v1/...` avec le header `X-N8N-API-KEY`.
+
+**Génération de la clé** (une fois, manuellement) :
+1. Login http://localhost:5678 (compte owner créé au /setup)
+2. Settings (avatar en haut à droite) → **n8n API** → **Create an API Key**
+3. Label `matix-api-dev`, no expiration en dev → Save
+4. Coller le token dans `.env` puis redémarrer l'API NestJS
+
+> Cf. `infra/n8n-workflows/README.md` § "Génération de l'API key n8n" pour le détail.
+>
+> ⚠️ Sans `N8N_API_KEY`, le `N8nClientService` tourne en **mode dégradé** : il log un warning au boot et toutes ses méthodes retournent `null/false` sans crash — pratique pour démarrer l'app sans n8n configuré.
+
 ---
 
 ## 🚀 Commandes courantes

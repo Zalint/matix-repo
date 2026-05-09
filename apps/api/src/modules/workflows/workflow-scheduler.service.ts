@@ -23,11 +23,14 @@ type InstanceForFire = {
 /**
  * Cron interne — declenche les workflows tenants selon `custom_settings.cron`.
  *
- * Phase 2 initiale : la boucle minute est STUBBED (un seul log periodique).
- * Le user activera la vraie logique quand les workflows seront uploades dans n8n.
+ * Phase 2 step 3 : la boucle minute est ACTIVE quand `WORKFLOWS_CRON_ENABLED=1`.
+ * Format cron supporte : `HH:MM` strict (ex: '23:55'), interprete dans le fuseau
+ * `WORKFLOWS_CRON_TZ` (default `Africa/Dakar`). Anti-double-fire en memoire.
+ * TODO Phase 3 : full cron expression (5-field) + tenant.timezone par tenant.
  *
  * `fire(instanceId, triggered_by, user_id?)` est utilise par les triggers manuels
- * depuis tenant-workflows.controller — donc on garde l'implementation reelle de fire().
+ * depuis tenant-workflows.service.triggerNow() — pas de circular dep car le
+ * scheduler n'injecte PAS tenant-workflows.service.
  *
  * Choix : on utilise ADMIN_PG_POOL (BYPASSRLS) ici car le scheduler tourne hors
  * d'un contexte HTTP/CLS — il scanne tous les tenants. Tous les INSERT/UPDATE
@@ -38,16 +41,28 @@ export class WorkflowSchedulerService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(WorkflowSchedulerService.name);
   private timer: NodeJS.Timeout | null = null;
 
+  // Anti-double-fire : un meme instance ne doit etre tiree qu'une seule fois
+  // par minute meme si tickSafe() est rappele a 60s de delta.
+  // Cle = instanceId, valeur = 'YYYY-MM-DDTHH:MM' du dernier fire.
+  private readonly lastFiredMinute = new Map<string, string>();
+
+  // Fuseau horaire par defaut pour interpreter les cron 'HH:MM'.
+  // Phase 2 : fixe a Africa/Dakar (UTC+0). Phase 3 : tenant.timezone.
+  private readonly defaultTz = process.env.WORKFLOWS_CRON_TZ ?? 'Africa/Dakar';
+
   constructor(
     @Inject(ADMIN_PG_POOL) private readonly pool: Pool,
     private readonly n8nClient: N8nClientService,
   ) {}
 
   onModuleInit(): void {
-    // STUB : boucle minute desactivee tant que les workflows n8n ne sont pas uploades.
-    // Quand le user sera pret, basculer WORKFLOWS_CRON_ENABLED=1 et la boucle s'allume.
+    // Securite opt-in : le cron ne s'allume que si WORKFLOWS_CRON_ENABLED=1.
+    // En staging/prod sans n8n configure ou en dev rapide, le cron reste OFF
+    // et seul `triggerNow()` (manuel) marche.
     if (process.env.WORKFLOWS_CRON_ENABLED === '1') {
-      this.log.log('Cron interne workflows ACTIF (60s tick).');
+      this.log.log(
+        `Cron interne workflows ACTIF (60s tick, tz=${this.defaultTz}).`,
+      );
       this.timer = setInterval(() => {
         this.tickSafe().catch((e) =>
           this.log.error(`Tick scheduler erreur: ${(e as Error).message}`),
@@ -55,7 +70,7 @@ export class WorkflowSchedulerService implements OnModuleInit, OnModuleDestroy {
       }, 60_000);
     } else {
       this.log.warn(
-        'Cron interne workflows DESACTIVE (WORKFLOWS_CRON_ENABLED!=1) — TODO: real cron',
+        'Cron interne workflows DESACTIVE (WORKFLOWS_CRON_ENABLED!=1) — declenchement manuel uniquement.',
       );
     }
   }
@@ -69,12 +84,19 @@ export class WorkflowSchedulerService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Tick minute — protege par try/catch pour ne jamais crash le timer.
+   *
+   * Logique :
+   *  - Calcule l'heure courante (HH:MM) dans le fuseau `defaultTz`
+   *  - Liste toutes les instances enabled
+   *  - Match exact `custom_settings.cron === HH:MM` → fire
+   *  - Anti-double-fire via Map<instanceId, lastMinuteFired>
+   *
+   * TODO Phase 3 : support full cron expression (5-field) + tenant.timezone.
    */
   private async tickSafe(): Promise<void> {
     const now = new Date();
-    const hh = String(now.getHours()).padStart(2, '0');
-    const mm = String(now.getMinutes()).padStart(2, '0');
-    const currentHHMM = `${hh}:${mm}`;
+    const currentHHMM = this.formatHHMM(now, this.defaultTz);
+    const minuteKey = this.formatMinuteKey(now, this.defaultTz);
 
     const { rows } = await this.pool.query<InstanceForFire>(
       `SELECT twi.id, twi.tenant_id, twi.template_id, wt.code AS template_code,
@@ -87,18 +109,57 @@ export class WorkflowSchedulerService implements OnModuleInit, OnModuleDestroy {
     for (const inst of rows) {
       const cronVal = inst.custom_settings?.cron;
       if (typeof cronVal !== 'string') continue;
-      // Format attendu Phase 2 : 'HH:MM' (ex: '23:55').
-      // TODO Phase 3 : support full cron expression (5-field).
-      if (cronVal === currentHHMM) {
-        this.log.log(
-          `Cron match: tenant=${inst.tenant_id} template=${inst.template_code} → fire`,
-        );
-        // fire() ne throw pas — il logge ses erreurs en DB (workflow_runs).
-        await this.fire(inst.id, 'cron').catch((e) =>
-          this.log.error(`fire(${inst.id}) erreur: ${(e as Error).message}`),
-        );
+      // Format Phase 2 : 'HH:MM' (ex: '23:55'). Strict match.
+      if (cronVal !== currentHHMM) continue;
+
+      // Anti-double-fire : si on a deja fire cette instance pour cette minute,
+      // on saute (peut arriver si 2 ticks tombent dans la meme minute).
+      if (this.lastFiredMinute.get(inst.id) === minuteKey) {
+        continue;
       }
+      this.lastFiredMinute.set(inst.id, minuteKey);
+
+      this.log.log(
+        `Cron match: tenant=${inst.tenant_id} template=${inst.template_code} cron=${cronVal} → fire`,
+      );
+      // fire() ne throw pas — il logge ses erreurs en DB (workflow_runs).
+      await this.fire(inst.id, 'cron').catch((e) =>
+        this.log.error(`fire(${inst.id}) erreur: ${(e as Error).message}`),
+      );
     }
+  }
+
+  /**
+   * Retourne 'HH:MM' dans le fuseau donne. Utilise Intl.DateTimeFormat —
+   * ca gere les transitions DST proprement (meme si Africa/Dakar n'en a pas).
+   */
+  private formatHHMM(d: Date, tz: string): string {
+    const fmt = new Intl.DateTimeFormat('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: tz,
+    });
+    // en-GB → "HH:MM" (24h)
+    return fmt.format(d);
+  }
+
+  /**
+   * Cle minute unique 'YYYY-MM-DDTHH:MM' dans le fuseau donne, pour
+   * l'anti-double-fire.
+   */
+  private formatMinuteKey(d: Date, tz: string): string {
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: tz,
+    });
+    // en-CA → "YYYY-MM-DD, HH:MM"
+    return fmt.format(d).replace(', ', 'T');
   }
 
   /**
@@ -163,11 +224,14 @@ export class WorkflowSchedulerService implements OnModuleInit, OnModuleDestroy {
         triggered_by: triggeredBy,
         ...inst.custom_settings,
       };
-      const { n8n_execution_id } = await this.n8nClient.triggerWebhook(
-        inst.template_code,
-        payload,
-      );
-      n8nExecutionId = n8n_execution_id;
+      const result = await this.n8nClient.triggerWebhook(inst.template_code, payload);
+      n8nExecutionId = result.n8nExecutionId;
+
+      if (!result.success) {
+        // L'appel webhook a echoue (n8n down, mode degrade, 4xx/5xx) — on
+        // throw pour basculer sur la branche 'error' qui logge en DB.
+        throw new Error(result.error ?? 'triggerWebhook a echoue');
+      }
 
       const durationMs = Date.now() - startedAt;
       await this.pool.query(

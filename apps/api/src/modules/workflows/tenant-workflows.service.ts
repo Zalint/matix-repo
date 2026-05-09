@@ -171,16 +171,25 @@ export class TenantWorkflowsService {
     );
     const instanceId = inserted.rows[0].id;
 
-    // Clone du workflow dans n8n (stub Phase 2)
-    let n8nWorkflowId: string;
+    // Clone du workflow dans n8n.
+    // Mode degrade : si n8n indispo / N8N_API_KEY non defini, cloneWorkflow
+    // retourne null. On laisse l'instance en DB avec n8n_workflow_id=NULL —
+    // l'admin pourra retry via updateSettings ou un re-activate manuel.
+    let n8nWorkflowId: string | null = null;
     try {
       n8nWorkflowId = await this.n8nClient.cloneWorkflow(
         template.n8n_definition,
         tenantId,
         instanceId,
       );
-      await this.n8nClient.updateWorkflowSettings(n8nWorkflowId, customSettings ?? {});
-      await this.n8nClient.activateWorkflow(n8nWorkflowId, true);
+      if (n8nWorkflowId) {
+        await this.n8nClient.updateWorkflowSettings(n8nWorkflowId, customSettings ?? {});
+        await this.n8nClient.activateWorkflow(n8nWorkflowId, true);
+      } else {
+        this.log.warn(
+          `Clone n8n indisponible (mode degrade ou API KO) — instance ${instanceId} cree avec n8n_workflow_id=NULL`,
+        );
+      }
     } catch (e) {
       this.log.error(
         `Echec clone n8n pour instance ${instanceId} (tenant ${tenantId}): ${(e as Error).message}`,
@@ -189,10 +198,12 @@ export class TenantWorkflowsService {
       throw e;
     }
 
-    await client.query(
-      `UPDATE tenant_workflow_instances SET n8n_workflow_id = $2, updated_at = NOW() WHERE id = $1`,
-      [instanceId, n8nWorkflowId],
-    );
+    if (n8nWorkflowId) {
+      await client.query(
+        `UPDATE tenant_workflow_instances SET n8n_workflow_id = $2, updated_at = NOW() WHERE id = $1`,
+        [instanceId, n8nWorkflowId],
+      );
+    }
 
     this.log.log(
       `Workflow active: tenant=${tenantId} template=${templateCode} instance=${instanceId}`,

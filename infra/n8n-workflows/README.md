@@ -175,6 +175,29 @@ docker logs -f matix-n8n
 - Login : `admin` / `admin` (basic auth, dev only — change-le pour prod)
 - Au premier login, n8n te demande de créer un compte propriétaire (email + password). Choisis ce que tu veux, c'est local.
 
+### Génération de l'API key n8n (obligatoire pour `N8nClientService`)
+
+L'API NestJS Matix appelle l'API REST n8n (`POST /api/v1/workflows`, etc.) pour cloner / activer / déclencher les workflows tenant. Cela nécessite une **API key personnelle** générée depuis l'UI n8n :
+
+1. Login dans http://localhost:5678 avec ton compte owner.
+2. Menu en haut à droite (avatar) → **Settings**.
+3. Onglet **n8n API** → **Create an API Key**.
+4. Donner un label (ex: `matix-api-dev`), choisir une durée (ex: `No expiration` en dev), puis **Save**.
+5. Copier le token affiché (commence par `n8n_api_...`).
+6. Coller dans `.env` à la racine du repo :
+   ```
+   N8N_URL=http://localhost:5678
+   N8N_API_KEY=n8n_api_<le_token_genere>
+   ```
+7. Redémarrer l'API NestJS (`pnpm dev` ou `start_matix.ps1`) — au boot, le log `N8nClientService initialise (n8nUrl=...)` confirme que la clé est lue.
+
+> ⚠️ **Sans `N8N_API_KEY`**, l'API démarre quand même mais en **mode dégradé** :
+> toutes les méthodes `N8nClientService` retournent `null` / `false` et loggent
+> un warning. Les activations de workflow tenant créent une instance en DB
+> avec `n8n_workflow_id = NULL`. Pas de crash, mais aucun workflow ne s'exécute.
+
+> ⚠️ La clé n8n est un **secret** : ne la commit jamais, regenere-la en cas de fuite (Settings → n8n API → ⋮ → Delete).
+
 ### Importer les 3 workflows existants
 
 Le dossier `infra/n8n-workflows/` est monté dans le conteneur en `/workflows` (read-only). Pour importer un workflow :
