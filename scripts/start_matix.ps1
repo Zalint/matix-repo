@@ -30,14 +30,14 @@
   .\scripts\start_matix.ps1 -Mode dev -StopFirst
   Demarre en mode dev apres avoir tue les anciens process API/Web.
 
-.PARAMETER WithExtras
-  Demarre aussi les services optionnels du profile 'extras' :
+.PARAMETER NoExtras
+  Par defaut, le script demarre AUSSI les services du profile 'extras' :
   n8n (workflows http://localhost:5678), redis (6379), mailhog (8025).
-  Sans ce flag, seuls Postgres + Keycloak sont lances.
+  Utilise -NoExtras pour skipper et ne lancer que Postgres + Keycloak.
 
 .EXAMPLE
-  .\scripts\start_matix.ps1 -WithExtras
-  Demarre la stack standard + n8n/redis/mailhog.
+  .\scripts\start_matix.ps1 -NoExtras
+  Demarre la stack minimale (sans n8n/redis/mailhog).
 #>
 [CmdletBinding()]
 param(
@@ -45,8 +45,11 @@ param(
   [string]$Mode = 'keycloak',
   [switch]$SkipPreflight,
   [switch]$StopFirst,
-  [switch]$WithExtras
+  [switch]$NoExtras
 )
+
+# Defaut : extras actifs. Pass -NoExtras pour opt-out.
+$WithExtras = -not $NoExtras
 
 $ErrorActionPreference = 'Stop'
 
