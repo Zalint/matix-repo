@@ -1,12 +1,24 @@
 import { SetMetadata } from '@nestjs/common';
 
-export type TenantRole = 'owner' | 'admin' | 'superviseur' | 'member' | 'readonly';
+export type TenantRole =
+  | 'system'
+  | 'owner'
+  | 'admin'
+  | 'superviseur'
+  | 'member'
+  | 'readonly';
 
 /**
- * Hiérarchie : owner > admin > superviseur > member > readonly.
+ * Hiérarchie : system > owner > admin > superviseur > member > readonly.
+ *
+ * `system` est un pseudo-rôle réservé aux appels machine-to-machine
+ * (n8n, jobs background) authentifiés par MATIX_SERVICE_TOKEN. Niveau le plus
+ * élevé pour éviter qu'un endpoint @RequiresRole bloque l'orchestration interne.
+ *
  * Un endpoint @Roles('admin') laisse passer owner ET admin (mais pas superviseur+).
  */
 export const ROLE_HIERARCHY: Record<TenantRole, number> = {
+  system: 6,
   owner: 5,
   admin: 4,
   superviseur: 3,

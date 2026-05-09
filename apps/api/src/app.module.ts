@@ -19,6 +19,7 @@ import { ProductsModule } from './modules/products/products.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { TeamModule } from './modules/team/team.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
+import { WorkflowsModule } from './modules/workflows/workflows.module';
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { TenantsModule } from './modules/tenants/tenants.module';
     InventoryModule,
     SalesModule,
     TeamModule,
+    WorkflowsModule,
   ],
   providers: [
     {

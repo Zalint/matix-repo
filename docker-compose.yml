@@ -61,6 +61,50 @@ services:
       - "8025:8025"  # UI
     profiles: ["extras"]
 
+  # n8n — orchestrateur de workflows externes (rapports email + agent agrégateur APIs).
+  # Transitoire : sera remplacé par les modules natifs Matix (platform.workflows,
+  # analytics.ai.agent, analytics.reports.daily_digest) en Phase 2/4.
+  # 3 workflows existants dans ./infra/n8n-workflows/ (montés en /workflows pour import).
+  # Lancement : docker compose --profile extras up -d n8n
+  # UI : http://localhost:5678 (login admin/admin)
+  # Pin version — :latest a eu un souci d'extraction (read-only fs) sur certains
+  # layers (@azure/msal-browser). 1.74.x est stable et passe sans problème.
+  n8n:
+    image: n8nio/n8n:1.74.1
+    container_name: matix-n8n
+    ports:
+      - "5678:5678"
+    environment:
+      # Auth basique (dev only — en prod : Keycloak proxy ou n8n cloud user mgmt)
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: admin
+      N8N_BASIC_AUTH_PASSWORD: admin
+      # Persistance dans matix-postgres (DB dédiée n8n créée par db/init/02_create_n8n_db.sql)
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: n8n_dev
+      # URL publique
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://localhost:5678/
+      # Timezone (utile pour les schedules cron — workflows MATA tournent en heure Dakar)
+      GENERIC_TIMEZONE: Africa/Dakar
+      TZ: Africa/Dakar
+      # Sécurité : pas d'envoi de telemetry hors instance
+      N8N_DIAGNOSTICS_ENABLED: "false"
+    volumes:
+      - matix-n8n-data:/home/node/.n8n
+      - ./infra/n8n-workflows:/workflows:ro   # JSON dispos pour import dans l'UI
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["extras"]
+
 volumes:
   matix-pgdata:
   matix-redisdata:
+  matix-n8n-data:

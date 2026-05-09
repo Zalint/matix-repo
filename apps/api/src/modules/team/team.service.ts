@@ -221,7 +221,7 @@ export class TeamService {
   }
 
   private roleLevel(r: TenantRole): number {
-    return { owner: 5, admin: 4, superviseur: 3, member: 2, readonly: 1 }[r];
+    return { system: 6, owner: 5, admin: 4, superviseur: 3, member: 2, readonly: 1 }[r];
   }
 
   private async assertNotLastOwner(tenantId: string, excludingUserId: string): Promise<void> {

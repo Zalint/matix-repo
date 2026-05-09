@@ -78,20 +78,37 @@ Tout doit être prêt :
 | `matix-keycloak` | `quay.io/keycloak/keycloak:25.0` | 8080 | default |
 | `matix-redis` | `redis:7-alpine` | 6379 | `extras` |
 | `matix-mailhog` | `mailhog/mailhog:latest` | 1025 (SMTP), 8025 (UI) | `extras` |
+| `matix-n8n` | `n8nio/n8n:latest` | 5678 (UI) | `extras` |
 
-**Keycloak persistence** : Keycloak utilise Postgres comme DB (pas H2). La DB
-`keycloak` et le user `keycloak` sont créés au premier boot via
-`db/init/01_create_keycloak_db.sql`. Si tu démarres sur un Postgres déjà
-initialisé, run le script manuellement :
+**Persistence partagée Postgres** : 3 services utilisent le même Postgres mais avec des bases dédiées :
+- `matix` (DB métier — owner `matix_admin`)
+- `keycloak` (auth — owner `keycloak`)
+- `n8n` (workflows — owner `n8n`, profile `extras`)
+
+Les 3 sont créées au premier boot via les init scripts dans `db/init/`. Si tu démarres sur un Postgres déjà initialisé, run les manuellement :
 
 ```powershell
+# Postgres déjà tournant — appliquer les init scripts manuellement
 docker exec -i matix-postgres psql -U matix_admin -d postgres < db/init/01_create_keycloak_db.sql
+docker exec -i matix-postgres psql -U matix_admin -d postgres < db/init/02_create_n8n_db.sql
 ```
 
 > Note : `KC_DB: dev-mem` (H2 in-memory) **n'est pas viable** pour un dev
 > quotidien — Hikari ferme les connexions après ~10min, H2 perd toutes ses
 > tables → erreur 500 au login. `dev-file` (H2 persisté) souffre de soucis
 > de perms volume. Donc on utilise Postgres.
+
+### n8n (workflows externes — transitoire)
+
+Le service `n8n` est en profile `extras`, pas démarré par défaut. Il sert à faire tourner les 3 workflows existants (`infra/n8n-workflows/`) en attendant les modules natifs `analytics.reports.daily_digest`, `analytics.ai.agent`, `platform.workflows` (Phase 2/4).
+
+```powershell
+docker compose --profile extras up -d n8n
+# UI : http://localhost:5678 (admin / admin)
+# Logs : docker logs -f matix-n8n
+```
+
+Détails complets (import workflows, sécurité, plan migration) : voir `infra/n8n-workflows/README.md`.
 
 Les services en `extras` se démarrent à la demande :
 

@@ -1,0 +1,177 @@
+{
+  "name": "MATA BANQ REPORT",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 23,
+              "triggerAtMinute": 55
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -528,
+        -720
+      ],
+      "id": "5e01fcfe-5a84-4506-8078-945b18d7ef67",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "sendTo": "doucoure.saliou@gmail.com;ousmane.info@gmail.com",
+        "subject": "=Rapport Matabanq au {{ $('Code0').item.json.today }}",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        480,
+        -720
+      ],
+      "id": "efeee545-71ad-45e7-b144-513977d83517",
+      "name": "Send a message",
+      "webhookId": "fae74066-611b-48a5-94ae-428bb1c2fa02",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "HrA0dfl3fOvncpm8",
+          "name": "Gmail account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://mata-depenses-management.onrender.com/external/api/status",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ $items('Code0')[0].json.today.split(/[\\/.-]/).reverse().join('-') }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-api-key",
+              "value": "4f8d9a2b6c7e8f1a3b5c9d0e2f4g6h7i"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -48,
+        -720
+      ],
+      "id": "6541ebbb-cc7f-4cb6-8b9d-4b136a591aa3",
+      "name": "Get Creance MataBanq",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node (Run once for all items)\n// Sortie: [{ json: { subject, html, text } }]\n\n'use strict';\n\n// ---------- Helpers ----------\nconst nf = new Intl.NumberFormat('fr-FR');\nconst n0 = (v) => {\n  const num = Number(v);\n  return nf.format(Number.isFinite(num) ? num : 0);\n};\nconst esc = (s) =>\n  String(s ?? '').replace(/[&<>\"']/g, (c) => (\n    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]\n  ));\nconst isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);\n\nfunction fmtDate(x) {\n  if (x == null) return '—';\n  if (typeof x === 'string') return x;\n  if (typeof x === 'number') {\n    try { return new Date(x).toISOString().slice(0, 10); } catch { return String(x); }\n  }\n  if (isObj(x)) {\n    const keys = ['iso', 'value', 'date', 'start', 'end'];\n    for (const k of keys) if (x[k]) return String(x[k]);\n    return '—';\n  }\n  return '—';\n}\n\n// Récupérer la donnée source\nfunction getData(items) {\n  for (const it of items) {\n    const j = it?.json;\n    if (isObj(j) && (j.accounts || j.global_metrics || j.stockVivant)) return j;\n  }\n  return items?.[0]?.json ?? {};\n}\n\nconst data = getData(items);\n\n// ---------- Dates / période ----------\nconst dateSelected = data.date_selected || data.period_info?.selected_date || '—';\n\n// ---------- Partie 1 : Dépenses (jour / semaine / mois) ----------\nlet totalDay = 0, totalWeek = 0, totalMonth = 0;\nconst perAccountTotals = []; // [{account, group, weekly, monthly}]\n\n// Dépenses du jour pour TOUS les comptes (≠ 0)\nconst allDailyHTMLRows = [];\nconst allDailyTextRows = [];\n\nif (isObj(data.accounts)) {\n  for (const [groupName, groupObj] of Object.entries(data.accounts)) {\n    if (!isObj(groupObj)) continue;\n\n    for (const [accName, accData] of Object.entries(groupObj)) {\n      if (!isObj(accData)) continue;\n\n      const dayExp   = Number(accData.dailyExpenses?.total_daily_expenses || 0);\n      const weekExp  = Number(accData.weeklyExpenses?.total_weekly_expenses || 0);\n      const monthExp = Number(accData.monthlyExpenses?.total_monthly_expenses || 0);\n\n      totalDay  += dayExp;\n      totalWeek += weekExp;\n      totalMonth+= monthExp;\n\n      perAccountTotals.push({\n        account: accName,\n        group: accData.accountInfo?.type || groupName,\n        weekly: weekExp,\n        monthly: monthExp,\n      });\n\n      // Lister les écritures uniquement si total du jour ≠ 0\n      if (dayExp !== 0) {\n        const list = Array.isArray(accData.dailyExpenses?.expenses)\n          ? accData.dailyExpenses.expenses\n          : [];\n\n        if (list.length > 0) {\n          for (const e of list) {\n            const amount = Number(e?.amount || 0);\n            if (!Number.isFinite(amount)) continue;\n\n            allDailyHTMLRows.push([\n              esc(accName),\n              esc(e?.description ?? ''),\n              esc(e?.supplier ?? ''),\n              n0(amount),\n              esc(e?.category ?? ''),\n              esc(e?.subcategory ?? ''),\n              esc(e?.type ?? ''),\n            ]);\n            allDailyTextRows.push([\n              String(accName),\n              String(e?.description ?? ''),\n              String(e?.supplier ?? ''),\n              n0(amount),\n              String(e?.category ?? ''),\n              String(e?.subcategory ?? ''),\n              String(e?.type ?? ''),\n            ]);\n          }\n        } else {\n          // Total ≠ 0 mais pas de détails disponibles\n          allDailyHTMLRows.push([\n            esc(accName),\n            '— (détails indisponibles)',\n            '—',\n            n0(dayExp),\n            '—',\n            '—',\n            '—',\n          ]);\n          allDailyTextRows.push([\n            String(accName),\n            '— (détails indisponibles)',\n            '—',\n            n0(dayExp),\n            '—',\n            '—',\n            '—',\n          ]);\n        }\n      }\n    }\n  }\n}\n\n// ---------- Partie 2 : Stock vivant (delta + produits) ----------\nconst sv = data.stockVivant || {};\nconst delta = sv.delta || {};\nconst deltaView = {\n  previous_total: (delta.previous_total ?? null),\n  current_total:  (delta.current_total ?? null),\n  difference:     (delta.difference ?? (\n    delta.current_total != null && delta.previous_total != null\n      ? (Number(delta.current_total) - Number(delta.previous_total))\n      : null\n  )),\n  percentage_change: (delta.percentage_change != null)\n    ? Number(delta.percentage_change)\n    : (delta.current_total != null && delta.previous_total\n        ? ((Number(delta.current_total) - Number(delta.previous_total)) / (Number(delta.previous_total) || 1)) * 100\n        : null)\n};\n\n// Liste par produit depuis delta.product_changes\nconst productChanges =\n  Array.isArray(delta.product_changes) ? delta.product_changes :\n  Array.isArray(delta.productChanges) ? delta.productChanges :\n  Array.isArray(sv.product_changes)   ? sv.product_changes   : [];\n\n// ---------- Partie 3 : stockSoirMata ----------\nconst ssm = data.stockSoirMata || {};\nconst ssmTotalValue = ssm.total_value ?? null;\n\n// Somme par point_de_vente à partir de entries[].stock_soir\nconst byPdV = {};\nif (Array.isArray(ssm.entries)) {\n  for (const entry of ssm.entries) {\n    const pdv = entry.point_de_vente || entry.pointDeVente || entry.pdv || 'Non spécifié';\n    const v = Number(entry.stock_soir || 0);\n    byPdV[pdv] = (byPdV[pdv] || 0) + (Number.isFinite(v) ? v : 0);\n  }\n}\n\n// ---------- Partie 4 : livraisonPartenaire ----------\nconst lp = data.livraisonPartenaire || data.deliveriesPartenaire || {};\nconst livraisonRows = []; // { partner, date, amount, description, status, total_validated_deliveries, remaining_balance }\n\nfunction pushRow(partnerName, obj) {\n  livraisonRows.push({\n    partner: partnerName || obj.partner || '—',\n    date: fmtDate(obj.latest_delivery?.date || obj.date),\n    amount: Number(obj.latest_delivery?.amount ?? obj.amount ?? 0),\n    description: obj.latest_delivery?.description ?? obj.description ?? '',\n    status: obj.latest_delivery?.status ?? obj.status ?? '',\n    total_validated_deliveries: Number(obj.total_validated_deliveries ?? 0),\n    remaining_balance: Number(obj.remaining_balance ?? 0),\n  });\n}\nif (isObj(lp)) {\n  for (const [name, obj] of Object.entries(lp)) {\n    if (isObj(obj)) pushRow(name, obj);\n  }\n}\n\n// ---------- Partie 5 : global_metrics (PL uniquement) ----------\nconst gm = data.global_metrics || {};\nconst pnl = gm.profitAndLoss || gm.profit_and_loss || {};\nconst brutPLObj = pnl.brutPL || gm.brutPL || {};\nconst brutComp  = brutPLObj.components || {};\n\nconst estPLObj  = pnl.estimatedProfitAndLoss || gm.estimatedProfitAndLoss || {};\nconst estComp   = estPLObj.components || {};\nconst fixedCharges = (estComp.estimated_fixed_charges != null)\n  ? estComp.estimated_fixed_charges\n  : estComp.charges_prorata; // fallback éventuel\n\n// ---------- HTML helpers ----------\nfunction table(headers, rows) {\n  const thead = `<thead><tr>${headers.map(h=>`<th style=\"text-align:left;padding:6px;border-bottom:1px solid #ddd;\">${esc(h)}</th>`).join('')}</tr></thead>`;\n  const tbody = `<tbody>${rows.map(r=>`<tr>${r.map(c=>`<td style=\"padding:6px;border-bottom:1px solid #f0f0f0;\">${c}</td>`).join('')}</tr>`).join('')}</tbody>`;\n  return `<table style=\"border-collapse:collapse;width:100%;margin:6px 0 12px 0;\">${thead}${tbody}</table>`;\n}\nconst h1 = (t)=>`<h2 style=\"margin:14px 0 8px 0;font-family:Arial;\">${esc(t)}</h2>`;\nconst p  = (t)=>`<p style=\"margin:6px 0;font-family:Arial;\">${esc(t)}</p>`;\n\n// Lignes pré-calculées\nconst dateLine = p('Date : ' + esc(dateSelected));\nconst ssmLine  = p('Valeur totale (stockSoirMata.total_value) : ' + (ssmTotalValue == null ? '—' : n0(ssmTotalValue)));\n\n// ----- Partie 1 (HTML) -----\nconst part1Header = table(\n  ['Dépenses du jour', 'Semaine', 'Mois'],\n  [[n0(totalDay), n0(totalWeek), n0(totalMonth)]]\n);\n\n// Dépenses du jour (≠ 0) – tous comptes (section visible seulement si lignes)\nconst part1DailyTitle = allDailyHTMLRows.length ? p('Dépenses du jour (≠ 0) – tous comptes') : '';\nconst part1DailyTable = allDailyHTMLRows.length\n  ? table(\n      ['Compte', 'Description', 'Fournisseur', 'Montant', 'Catégorie', 'Sous-catégorie', 'Type'],\n      allDailyHTMLRows\n    )\n  : '';\n\n// Tableau par compte : masquer lignes où semaine = 0 ET mois = 0\nconst perAccountFiltered = perAccountTotals.filter(r => Number(r.weekly) !== 0 || Number(r.monthly) !== 0);\nconst part1PerAccountTitle = perAccountFiltered.length ? p('Dépenses cumulées par compte (semaine/mois ≠ 0)') : '';\nconst part1PerAccountRows = perAccountFiltered\n  .sort((a,b)=> String(a.account).localeCompare(String(b.account), 'fr'))\n  .map(r => [esc(r.account), esc(r.group), n0(r.weekly), n0(r.monthly)]);\nconst part1PerAccountTable = perAccountFiltered.length\n  ? table(['Compte', 'Groupe', 'Total semaine', 'Total mois'], part1PerAccountRows)\n  : '';\n\n// ----- Partie 2 (HTML) -----\nconst part2DeltaTable = table(\n  ['Précédent', 'Courant', 'Différence', 'Évolution (%)'],\n  [[\n    deltaView.previous_total == null ? '—' : n0(deltaView.previous_total),\n    deltaView.current_total  == null ? '—' : n0(deltaView.current_total),\n    deltaView.difference     == null ? '—' : n0(deltaView.difference),\n    deltaView.percentage_change == null ? '—' : n0(deltaView.percentage_change)\n  ]]\n);\n\nconst part2ChangesRows = productChanges.map(ch => ([\n  esc(ch.category ?? '—'),\n  esc(ch.product  ?? ch.produit ?? ch.name ?? '—'),\n  n0(ch.previous_quantity),\n  n0(ch.current_quantity),\n  n0(ch.quantity_change),\n  n0(ch.previous_unit_price),\n  n0(ch.current_unit_price),\n  n0(ch.previous_total),\n  n0(ch.current_total),\n  n0(ch.total_change),\n]));\nconst part2ChangesTable = table(\n  ['Catégorie', 'Produit', 'Qté préc.', 'Qté cour.', 'Δ qté', 'PU préc.', 'PU cour.', 'Total préc.', 'Total cour.', 'Δ total'],\n  part2ChangesRows.length ? part2ChangesRows : [['—','—','—','—','—','—','—','—','—','—']]\n);\n\n// ----- Partie 3 (HTML) -----\nconst pdvRows = Object.keys(byPdV).length\n  ? Object.entries(byPdV).map(([k,v]) => [esc(k), n0(v)])\n  : [['—', '—']];\nconst part3Table = table(\n  ['Point de vente', 'Valeur cumulée'],\n  pdvRows\n);\n\n// ----- Partie 4 (HTML) -----\nconst part4Rows = (livraisonRows.length ? livraisonRows : [{partner:'—',date:'—',amount:0,description:'—',status:'—',total_validated_deliveries:0,remaining_balance:0}])\n  .map(r => [esc(r.partner), esc(r.date), n0(r.amount), esc(r.description), esc(r.status), n0(r.total_validated_deliveries), n0(r.remaining_balance)]);\nconst part4Table = table(\n  ['Partenaire', 'Date', 'Montant', 'Description', 'Statut', 'Livraisons validées (total)', 'Solde restant'],\n  part4Rows\n);\n\n// ----- Partie 5 (HTML) — PL uniquement -----\nconst part5PLTable = table(\n  ['brutPL (valeur)', 'cash_bictorys', 'creances', 'stock_pv', 'écart stock vivant (mensuel)', 'cash_burn', 'livraisons_partenaire'],\n  [[\n    n0(brutPLObj.value),\n    n0(brutComp.cash_bictorys),\n    n0(brutComp.creances),\n    n0(brutComp.stock_pv),\n    n0(brutComp.ecart_stock_vivant_mensuel),\n    n0(brutComp.cash_burn),\n    n0(brutComp.livraisons_partenaire),\n  ]]\n);\nconst part5EstTable = table(\n  ['estimatedProfitAndLoss (valeur)', 'estimated_fixed_charges'],\n  [[\n    n0(estPLObj.value),\n    n0(fixedCharges),\n  ]]\n);\n\n// ---------- SUBJECT / HTML / TEXT ----------\nconst subject = `Rapport quotidien – Dépenses & Stocks – ${dateSelected}`;\n\nconst html = `\n  <div style=\"font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.4;\">\n    ${h1('Partie 1 – Dépenses (Jour / Semaine / Mois)')}\n    ${dateLine}\n    ${part1Header}\n    ${part1DailyTitle}${part1DailyTable}\n    ${part1PerAccountTitle}${part1PerAccountTable}\n\n    ${h1('Partie 2 – Stock vivant : Delta & Évolutions par produit')}\n    ${part2DeltaTable}\n    ${part2ChangesTable}\n\n    ${h1('Partie 3 – Stock du soir (MATA)')}\n    ${ssmLine}\n    ${part3Table}\n\n    ${h1('Partie 4 – Livraisons partenaires')}\n    ${part4Table}\n\n    ${h1('Partie 5 – Profit & Loss (global_metrics)')}\n    <h3 style=\"margin:8px 0 4px 0;\">5.1 – brutPL & estimatedProfitAndLoss</h3>\n    ${part5PLTable}\n    ${part5EstTable}\n  </div>\n`.trim();\n\n// ---------- Version texte ----------\nfunction asTextTable(headers, rows){\n  const line = headers.join(' | ');\n  const sep  = headers.map(h=>'—'.repeat(Math.max(3, h.length))).join('-|-');\n  const body = rows.map(r => r.join(' | ')).join('\\n');\n  return [line, sep, body].join('\\n');\n}\n\nconst textSections = [];\ntextSections.push(`Partie 1 – Dépenses (Jour/Semaine/Mois) – Date: ${dateSelected}`);\ntextSections.push(`Totaux: Jour=${n0(totalDay)} | Semaine=${n0(totalWeek)} | Mois=${n0(totalMonth)}`);\n\n// Dépenses du jour (≠ 0) — seulement si on a des lignes\nif (allDailyTextRows.length) {\n  textSections.push('');\n  textSections.push(\n    asTextTable(\n      ['Compte','Description','Fournisseur','Montant','Catégorie','Sous-catégorie','Type'],\n      allDailyTextRows\n    )\n  );\n}\n\n// Tableau par compte (filtré)\nif (perAccountFiltered.length) {\n  textSections.push('');\n  textSections.push(\n    asTextTable(\n      ['Compte', 'Groupe', 'Total semaine', 'Total mois'],\n      perAccountFiltered.map(r => [r.account, r.group, n0(r.weekly), n0(r.monthly)])\n    )\n  );\n}\n\ntextSections.push('');\ntextSections.push('Partie 2 – Stock vivant : Delta & Évolutions');\ntextSections.push(\n  `Delta: précédent=${deltaView.previous_total==null?'—':n0(deltaView.previous_total)} | courant=${deltaView.current_total==null?'—':n0(deltaView.current_total)} | diff=${deltaView.difference==null?'—':n0(deltaView.difference)} | évolution=${deltaView.percentage_change==null?'—':n0(deltaView.percentage_change)}%`\n);\ntextSections.push(\n  asTextTable(\n    ['Catégorie','Produit','Qté préc.','Qté cour.','Δ qté','PU préc.','PU cour.','Total préc.','Total cour.','Δ total'],\n    (productChanges.length ? productChanges : [{\n      category:'—', product:'—', previous_quantity:0, current_quantity:0, quantity_change:0,\n      previous_unit_price:0, current_unit_price:0, previous_total:0, current_total:0, total_change:0\n    }]).map(ch => ([\n      String(ch.category ?? '—'),\n      String(ch.product  ?? ch.produit ?? ch.name ?? '—'),\n      n0(ch.previous_quantity),\n      n0(ch.current_quantity),\n      n0(ch.quantity_change),\n      n0(ch.previous_unit_price),\n      n0(ch.current_unit_price),\n      n0(ch.previous_total),\n      n0(ch.current_total),\n      n0(ch.total_change),\n    ]))\n  )\n);\n\ntextSections.push('');\ntextSections.push('Partie 3 – Stock du soir (MATA)');\ntextSections.push(`Total stockSoirMata: ${ssmTotalValue==null?'—':n0(ssmTotalValue)}`);\ntextSections.push(\n  asTextTable(\n    ['Point de vente', 'Valeur cumulée'],\n    (Object.keys(byPdV).length ? Object.entries(byPdV) : [['—', '—']]).map(([k,v]) => [k, n0(v)])\n  )\n);\n\ntextSections.push('');\ntextSections.push('Partie 4 – Livraisons partenaires');\ntextSections.push(\n  asTextTable(\n    ['Partenaire','Date','Montant','Description','Statut','Livraisons validées','Solde restant'],\n    (livraisonRows.length ? livraisonRows : [{partner:'—',date:'—',amount:0,description:'—',status:'—',total_validated_deliveries:0,remaining_balance:0}])\n      .map(r => [r.partner, r.date, n0(r.amount), r.description, r.status, n0(r.total_validated_deliveries), n0(r.remaining_balance)])\n  )\n);\n\ntextSections.push('');\ntextSections.push('Partie 5 – Profit & Loss (global_metrics)');\ntextSections.push(\n  asTextTable(\n    ['brutPL (valeur)', 'cash_bictorys', 'creances', 'stock_pv', 'écart stock vivant (mensuel)', 'cash_burn', 'livraisons_partenaire'],\n    [[\n      n0(brutPLObj.value),\n      n0(brutComp.cash_bictorys),\n      n0(brutComp.creances),\n      n0(brutComp.stock_pv),\n      n0(brutComp.ecart_stock_vivant_mensuel),\n      n0(brutComp.cash_burn),\n      n0(brutComp.livraisons_partenaire),\n    ]]\n  )\n);\ntextSections.push(\n  asTextTable(\n    ['estimatedProfitAndLoss (valeur)', 'estimated_fixed_charges'],\n    [[ n0(estPLObj.value), n0(fixedCharges) ]]\n  )\n);\n\nconst text = textSections.join('\\n');\n\nreturn [\n  { json: { subject, html, text } }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        -720
+      ],
+      "id": "9786eb26-4632-4185-a6ca-d5522c421831",
+      "name": "Code1",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Function node\n\nfunction getDatesSkipSunday() {\n  const fmt = d => {\n    const dd = String(d.getDate()).padStart(2, '0');\n    const mm = String(d.getMonth() + 1).padStart(2, '0');\n    const yyyy = d.getFullYear();\n    return `${dd}-${mm}-${yyyy}`;\n  };\n\n  const today = new Date();\n  const c = new Date(today.getFullYear(), today.getMonth(), today.getDate());\n  c.setDate(c.getDate() - 1)\n  const arr = [];\n  while (arr.length < 3) {\n    if (c.getDay() !== 0) arr.push(fmt(c)); // 0 = dimanche\n    c.setDate(c.getDate() - 1);\n  }\n\n  return {\n    today: fmt(new Date(today.getFullYear(), today.getMonth(), today.getDate())),\n    yest: fmt(new Date(today.getFullYear(), today.getMonth(), today.getDate()-1))\n  };\n}\n\n// Enrichir chaque item entrant (ou créer un item si aucun)\nif (items.length === 0) {\n  return [{ json: getDatesSkipSunday() }];\n}\n\nreturn items.map(item => {\n  Object.assign(item.json, getDatesSkipSunday());\n  return item;\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -304,
+        -720
+      ],
+      "id": "aeda5704-81e4-4751-abe0-9bf5db2af853",
+      "name": "Code0",
+      "alwaysOutputData": false,
+      "notesInFlow": false
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code0",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Creance MataBanq": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code0": {
+      "main": [
+        [
+          {
+            "node": "Get Creance MataBanq",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Dakar",
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "7r4vZg76cf7matis"
+  },
+  "versionId": "099b6d0e-4c33-4432-99f3-810784109af2",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "82f23e971ae5c642c457163e4e62aec1113d609a56d1d03ed9bfbe1a35390e01"
+  },
+  "id": "hyNyOpEdQnbKMn4J",
+  "tags": []
+}

@@ -20,8 +20,12 @@ export function Sidebar() {
   const SETTINGS_NAV = [
     { href: '/settings/team', label: 'Équipe' },
     { href: '/settings/licensing', label: 'Modules & licences' },
+    { href: '/settings/workflows', label: 'Workflows' },
   ];
-  const ADMIN_NAV = [{ href: '/admin/tenants', label: t('tenants') }];
+  const ADMIN_NAV = [
+    { href: '/admin/tenants', label: t('tenants') },
+    { href: '/admin/workflows', label: 'Workflows (admin)' },
+  ];
   return (
     <aside className="w-56 shrink-0 border-r border-gray-200 bg-white">
       <div className="px-4 py-5">

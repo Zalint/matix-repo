@@ -1,0 +1,1279 @@
+{
+  "name": "MATA AGENT WEBHOOK ASOFTODAY  19",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "/* ===============================================================\n   n8n Function node – Rapport quotidien MLC / MATA (HTML e-mail)\n   (Version SANS régression + AJOUTS demandés)\n\n   ✅ AJOUT : Mapping « Virement » (depuis JSON / node VIREMENT_NODE)\n   ✅ AJOUT : Colonne « Virement » dans le HTML\n   ✅ AJOUT : Calcul Breaks inclut le montant du virement\n   ✅ AJOUT : Points de vente NON case sensitive (tri + créance + virement + status + MLC)\n   ✅ AJOUT : Colonne « Vente CD Exécutée » (ventesSaisiesRecuesParCentreDecoupe)\n   ✅ NOTE  : L'API renvoie désormais directement\n              ecart     = ventesTheoriques − (ventesSaisies + ventesSaisiesRecuesParCentreDecoupe)\n              ecartCash = cashPayments     − (ventesSaisies + ventesSaisiesRecuesParCentreDecoupe)\n              → aucune soustraction supplémentaire côté Function node.\n   ✅ AJOUT : Break = Écart Cash + Delta Créance + Virement\n   =============================================================== */\n\n/* ------------------------------------------------------------------ \n *                    Configuration / constantes                      \n * ------------------------------------------------------------------ */\nconst CREANCE_NODE = 'Get Creance MataBanq';\nconst ANALYTICS_NODE = 'Get analytics';\nconst MLC_NODE = 'mlc'; // Node pour les données MLC\nconst PV_STATUS_NODE = 'point de vente status'; // sentiments par PV\n\n// === NOUVEAU : Node n8n pour les virements ===\nconst VIREMENT_NODE = 'Get Virement MataBanq';\n\nconst DIAG = false;\nconst ALERT_ECART_PCT = 10;\nconst ALERT_ECART_CASH = 10_000;\n\n// Tolérance pour considérer (Écart Cash + Delta Créance + Virement) comme « No Break »\nconst BREAK_TOLERANCE = 1; // FCFA\n\nconst REC_NODES = ['Get Rec from matix','Get Rec from matix node','Get Rec matix','Get Rec'];\nconst PRODUCT_FILTER = new Set(['Poulet','Tablette']);\n\n/* ------------------------------------------------------------------ \n *                      Helpers génériques                            \n * ------------------------------------------------------------------ */\nfunction esc(s){return String(s ?? '').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));}\nfunction formatCurrency(v){const n=Number(v)||0;return `${n.toLocaleString('fr-FR')} FCFA`;}\nfunction formatNumber(v){return Number(v||0).toLocaleString('fr-FR');}\n\nfunction toNumber(val){\n  if(val==null||val==='')return 0;\n  if(typeof val==='number')return Number.isFinite(val)?val:0;\n  if(typeof val==='string'){\n    const s=val.replace(/\\s/g,'').replace(/,/g,'.').replace(/[^\\d.-]/g,'');\n    const n=Number(s);\n    return Number.isFinite(n)?n:0;\n  }\n  const n=Number(val);\n  return Number.isFinite(n)?n:0;\n}\n\nfunction pct(a,b){a=toNumber(a);b=toNumber(b);return b>0? (a/b)*100 : 0;} // Pourcentage générique\n\nfunction normalizeDateStr(s){\n  if(!s)return'';\n  if(s instanceof Date && !isNaN(s))return s.toISOString().slice(0,10);\n  if(typeof s!=='string'){const d=new Date(s);return isNaN(d)?'':d.toISOString().slice(0,10);}\n  const t=s.trim();\n  if(/^\\d{4}-\\d{2}-\\d{2}T/.test(t))return t.slice(0,10);\n  if(/^\\d{4}-\\d{2}-\\d{2}$/.test(t))return t;\n  if(/^\\d{2}-\\d{2}-\\d{4}$/.test(t)){const [jj,mm,aaaa]=t.split('-');return `${aaaa}-${mm}-${jj}`;}\n  if(/^\\d{4}\\/\\d{2}\\/\\d{2}$/.test(t))return t.replace(/\\//g,'-');\n  if(/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(t)){const [jj,mm,aaaa]=t.split('/');return `${aaaa}-${mm}-${jj}`;}\n  const d=new Date(t);return isNaN(d)?'':d.toISOString().slice(0,10);\n}\n\nfunction extractTimeStr(s){\n  if(!s)return '';\n  const str=String(s);\n  const m=str.match(/T(\\d{2}:\\d{2})(?::\\d{2})?/);\n  return m?m[1]:'';\n}\n\nfunction safeItems(nodeName){try{return (typeof $items==='function')?($items(nodeName)||[]):[]}catch{return[]}}\n\nfunction pctStr(x){const n=toNumber(x);return `${n.toFixed(2)} %`;}\n\nfunction spanAmount(v){\n  const n=toNumber(v);\n  const color=n<0?'#C0392B':(n>0?'#1E8449':'#2C3E50');const fw=n!==0?'600':'500';\n  return `<span style=\"color:${color};font-weight:${fw}\">${formatCurrency(n)}</span>`;\n}\n\nfunction spanPercent(v){\n  if(v==null||!isFinite(v))return '';\n  const n=toNumber(v);\n  const color=n<0?'#C0392B':(n>0?'#1E8449':'#2C3E50');\n  const fw=n!==0?'600':'500';\n  return `<span style=\"color:${color};font-weight:${fw}\">${n.toFixed(2)} %</span>`;\n}\n\nfunction chip(text,type='info'){\n  const p={info:{bg:'#EEF2FF',color:'#1E40AF',br:'#C7D2FE'},ok:{bg:'#E8F5E9',color:'#1B5E20',br:'#A5D6A7'},warn:{bg:'#FFF8E1',color:'#8D6E00',br:'#FFE082'},danger:{bg:'#FFEBEE',color:'#B71C1C',br:'#EF9A9A'}}[type]||{bg:'#EEE',color:'#333',br:'#DDD'};\n  return `<span style=\"display:inline-block;padding:2px 8px;border:1px solid ${p.br};border-radius:999px;background:${p.bg};color:${p.color};font-size:12px;line-height:18px;\">${esc(text)}</span>`;\n}\n\nfunction normProd(s){return String(s||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').trim().toLowerCase();}\nfunction keepProduct(name){const n=normProd(name);return (PRODUCT_FILTER.has('Poulet')&&n==='poulet')||(PRODUCT_FILTER.has('Tablette')&&n==='tablette');}\n\nfunction deepFindAmount(x){\n  if(x==null)return null;\n  if(typeof x==='number')return x;\n  if(typeof x==='object'){\n    if(Object.prototype.hasOwnProperty.call(x,'amount'))return x.amount;\n    if(Array.isArray(x)){for(const e of x){const r=deepFindAmount(e);if(r!=null)return r}}\n    else{for(const k of Object.keys(x)){const r=deepFindAmount(x[k]);if(r!=null)return r}}\n  }\n  return null;\n}\n\nfunction readNodeAmount(nodeName){\n  const arr=safeItems(nodeName);\n  for(const it of arr){\n    let j=it?.json;\n    if(!j)continue;\n    if(typeof j==='string'){try{j=JSON.parse(j)}catch{}}\n    const v=deepFindAmount(j);\n    if(v!=null)return toNumber(v);\n  }\n  return 0;\n}\n\nfunction toPlainText(x){\n  if(x==null)return'';\n  if(Array.isArray(x))return x.map(v=>String(v??'')).filter(Boolean).join(' • ');\n  if(typeof x==='object'){try{return Object.values(x).map(v=>String(v??'')).filter(Boolean).join(' • ')}catch{return String(x)}}\n  return String(x);\n}\n\nfunction truncate(s,max=220){s=String(s||'');return s.length>max?s.slice(0,max-1)+'…':s;}\nfunction getResumeComment(res){const raw=res?.commentaire??res?.comment??res?.comments??res?.note??res?.remark??'';return truncate(toPlainText(raw),220);}\nfunction shouldHideCommentForAbattage(text){return /stock matin nul\\s*-\\s*calcul impossible/i.test(String(text||''));}\n\n/* ------------------------------------------------------------------ \n *          NORMALISATION PV (non case sensitive + accents)            \n * ------------------------------------------------------------------ */\nfunction normalizePvLabel(s){\n  return String(s||'')\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g,'')\n    .trim()\n    .toLowerCase();\n}\nfunction pvKey(s){ return normalizePvLabel(s); }\n\n/* ------------------------------------------------------------------ \n *                   Extraction données MLC                           \n * ------------------------------------------------------------------ */\nfunction extractMlcData(){\n  const arr = safeItems(MLC_NODE);\n  if(arr.length === 0) return null;\n  \n  for(const it of arr){\n    let j = it?.json;\n    if(!j) continue;\n    if(typeof j === 'string'){\n      try{ j = JSON.parse(j); }catch{}\n    }\n    \n    // Si c'est un tableau, prendre le premier élément\n    if(Array.isArray(j) && j.length > 0){\n      j = j[0];\n    }\n    \n    if(j?.summary){\n      return {\n        panierMoyen: toNumber(j.summary?.courses_mata?.panier_moyen),\n        panierTotalJour: toNumber(j.summary?.courses_mata?.panier_total_jour),\n        nombreCommandes: toNumber(j.summary?.courses_mata?.total),\n        sentimentGlobal: j.summary?.courses_mata?.sentimentAnalysis || null,\n        parPointVente: Array.isArray(j.summary?.courses_mata?.par_point_vente) \n          ? j.summary.courses_mata.par_point_vente \n          : []\n      };\n    }\n  }\n  return null;\n}\n\nfunction getMlcSentimentForPv(mlcData, pvName){\n  if(!mlcData || !Array.isArray(mlcData.parPointVente)) return null;\n  const targetPv = pvKey(pvName);\n  for(const pv of mlcData.parPointVente){\n    const pvNorm = pvKey(pv.point_de_vente || '');\n    if(pvNorm === targetPv){\n      return pv.sentimentAnalysis || null;\n    }\n  }\n  return null;\n}\n\n/* ------------------------------------------------------------------ \n *            PV Status (responsable & clients)  \n * ------------------------------------------------------------------ */\nfunction extractPvStatusData(){\n  const out = new Map();\n  const arr = safeItems(PV_STATUS_NODE);\n  for(const it of arr){\n    let j = it?.json;\n    if(!j) continue;\n    if(typeof j === 'string'){ try{ j = JSON.parse(j); } catch{} }\n\n    let parentDate = null;\n    let entries = [];\n\n    // Cas: j.data = { \"YYYY-MM-DD\": [ {point_de_vente, sentiment_analysis, client_sentiment_analysis}, ... ] }\n    if(j?.data && typeof j.data === 'object' && !Array.isArray(j.data)){\n      const keys = Object.keys(j.data)\n        .filter(k=>/^\\d{4}-\\d{2}-\\d{2}$/.test(k))\n        .sort().reverse(); // prend la plus récente\n      if(keys.length){\n        parentDate = keys[0];\n        entries = Array.isArray(j.data[parentDate]) ? j.data[parentDate] : [];\n      }\n    } else if(Array.isArray(j)) {\n      // Fallback: tableau plat\n      entries = j;\n      parentDate = normalizeDateStr(j?.period?.end || j?.period?.start || j?.date);\n    } else if(j?.entries && Array.isArray(j.entries)){\n      entries = j.entries;\n      parentDate = normalizeDateStr(j?.date || j?.period?.end || j?.period?.start);\n    }\n\n    const pDate = normalizeDateStr(j?.period?.end || j?.period?.start || parentDate);\n\n    for(const row of entries){\n      const pv = row.point_de_vente || row.pointVente || row.pdv || row.PointDeVente;\n      if(!pv) continue;\n      const key = pvKey(pv);\n\n      const status = row.sentiment_analysis || row.responsable_sentiment || {};\n      const client = row.client_sentiment_analysis || row.clients_sentiment || {};\n\n      out.set(key, {\n        parentDate: pDate || '',\n        statusSummary: (status && (status.summary || status.resume || status.text)) ? (status.summary || status.resume || status.text) : '',\n        statusSentiment: status.sentiment || status.label || '',\n        statusScore: toNumber(status.score),\n\n        clientSummary: (client && (client.summary || client.resume || client.text)) ? (client.summary || client.resume || client.text) : '',\n        clientSentiment: client.sentiment || client.label || '',\n        clientScore: toNumber(client.score),\n        clientDate: normalizeDateStr(client.latest_date || client.date || client.date_analyse)\n      });\n    }\n  }\n  return out;\n}\n\nfunction getPvStatusForPv(map, pvName){\n  if(!map) return null;\n  return map.get(pvKey(pvName)) || null;\n}\n\n/* ------------------------------------------------------------------ \n *                 NOUVEAU : Virements (mapping PV)                    \n * ------------------------------------------------------------------ */\nfunction collectVirementPayloads(){\n  const payloads = [];\n\n  // 1) Si le JSON est injecté directement dans le Function node\n  if(typeof items !== 'undefined' && items && Array.isArray(items)){\n    for(const it of items){\n      let j = it?.json;\n      if(!j) continue;\n      if(typeof j === 'string'){ try{ j = JSON.parse(j); }catch{} }\n      if(j) payloads.push(j);\n      if(j?.data) payloads.push(j.data);\n    }\n  }\n\n  // 2) Depuis le node dédié\n  const arr = safeItems(VIREMENT_NODE);\n  for(const it of arr){\n    let j = it?.json;\n    if(!j) continue;\n    if(typeof j === 'string'){ try{ j = JSON.parse(j); }catch{ continue; } }\n    payloads.push(j);\n    if(j?.data) payloads.push(j.data);\n  }\n\n  return payloads;\n}\n\n/**\n * Retourne une Map(pvKey => montantVirement) pour la date sélectionnée si possible.\n * Supporte plusieurs formats potentiels :\n * - root.data[\"YYYY-MM-DD\"] = [{pointDevente, montant/total_virement,...}]\n * - root.virements_par_point_vente = [...]\n * - root.virements_par_client = [...] (agrège par pointDevente)\n */\nfunction extractVirementMap(selectedDateNorm){\n  const out = new Map();\n  const payloads = collectVirementPayloads();\n\n  function add(pv, amount){\n    const k = pvKey(pv);\n    if(!k) return;\n    out.set(k, toNumber(out.get(k)) + toNumber(amount));\n  }\n\n  for(let p of payloads){\n    if(Array.isArray(p) && p.length) p = p[0];\n\n    // 1) Cas data[date]\n    if(p?.data && typeof p.data === 'object' && !Array.isArray(p.data)){\n      const keys = Object.keys(p.data).filter(k=>/^\\d{4}-\\d{2}-\\d{2}$/.test(k)).sort().reverse();\n      const useKey = (selectedDateNorm && p.data[selectedDateNorm]) ? selectedDateNorm : (keys[0] || null);\n      const rows = useKey && Array.isArray(p.data[useKey]) ? p.data[useKey] : [];\n      for(const r of rows){\n        const pv = r.pointDevente || r.point_de_vente || r.pointVente || r.pdv || r.PointDeVente || r.point_de_vente_nom;\n        const amt = r.montant ?? r.amount ?? r.total_virement ?? r.total_amount ?? r.total ?? r.somme ?? 0;\n        const d = normalizeDateStr(r.date || r.date_operation || r.operation_date || r.timestamp || r.derniere_date);\n        if(selectedDateNorm && d && d !== selectedDateNorm) continue;\n        if(pv) add(pv, amt);\n      }\n      continue;\n    }\n\n    // 2) Cas virements_par_point_vente\n    if(Array.isArray(p?.virements_par_point_vente)){\n      for(const r of p.virements_par_point_vente){\n        const pv = r.pointDevente || r.point_de_vente || r.pointVente || r.pdv || r.PointDeVente || r.point_de_vente_nom;\n        const amt = r.montant ?? r.amount ?? r.total_virement ?? r.total_amount ?? r.total ?? r.somme ?? 0;\n        const d = normalizeDateStr(r.date || r.date_operation || r.operation_date || r.timestamp || r.derniere_date);\n        if(selectedDateNorm && d && d !== selectedDateNorm) continue;\n        if(pv) add(pv, amt);\n      }\n      continue;\n    }\n\n    // 3) Cas virements_par_client (agrège par PV)\n    if(Array.isArray(p?.virements_par_client)){\n      for(const r of p.virements_par_client){\n        const pv = r.pointDevente || r.point_de_vente || r.pointVente || r.pdv || r.PointDeVente || r.point_de_vente_nom;\n        const amt = r.montant ?? r.amount ?? r.total_virement ?? r.total_amount ?? r.total ?? r.somme ?? 0;\n        const d = normalizeDateStr(r.date || r.date_operation || r.operation_date || r.timestamp || r.derniere_date);\n        // si une date ligne existe et qu’on a une date sélectionnée, on filtre\n        if(selectedDateNorm && d && d !== selectedDateNorm) continue;\n        if(pv) add(pv, amt);\n      }\n      continue;\n    }\n\n    // 4) Cas tableau plat\n    if(Array.isArray(p)){\n      for(const r of p){\n        const pv = r.pointDevente || r.point_de_vente || r.pointVente || r.pdv || r.PointDeVente || r.point_de_vente_nom;\n        const amt = r.montant ?? r.amount ?? r.total_virement ?? r.total_amount ?? r.total ?? r.somme ?? 0;\n        const d = normalizeDateStr(r.date || r.date_operation || r.operation_date || r.timestamp || r.derniere_date);\n        if(selectedDateNorm && d && d !== selectedDateNorm) continue;\n        if(pv) add(pv, amt);\n      }\n    }\n  }\n\n  return out;\n}\n\nfunction getVirementForPv(vMap, pvName){\n  if(!vMap) return 0;\n  return toNumber(vMap.get(pvKey(pvName)) || 0);\n}\n\n/* ------------------------------------------------------------------ \n *              Perrations (kg) — Bœuf / Veau / Agneau                \n * ------------------------------------------------------------------ */\nfunction getPVProduct(details, pvName, prodName){\n  const pv = details?.[pvName] || null;\n  if(!pv) return null;\n  return pv[prodName] || null;\n}\n\nfunction computePerrationKg(pvName, prodName, details){\n  const d = getPVProduct(details, pvName, prodName);\n  if(!d) return null;\n  \n  const isCF = pvKey(pvName) === pvKey('chambre froide');\n  const isAbattage = pvKey(pvName) === pvKey('abattage');\n  if(isAbattage) return null;\n  \n  const pn = (x)=>toNumber(d?.[x]);\n  \n  if(isCF){\n    const transf = Math.abs(pn('transfertsNombre'));\n    const denom = Math.abs(pn('stockMatinNombre') - pn('stockSoirNombre'));\n    if(!(transf>0) || !(denom>0)) return null;\n    const pct = (transf/denom) - 1;\n    return { soldKg:null, theoKg:null, deltaKg:null, pct };\n  }\n  \n  const ventesNombreAjustePack = pn('ventesNombreAjustePack');\n  const ventesTheoNombre = pn('ventesTheoriquesNombre');\n  const ventesValeur = pn('ventesValeur');\n  const ventesTheoValeur = pn('ventesTheoriquesValeur');\n  const pu = pn('stockMatinPrixUnitaire');\n  \n  let soldKg = null, theoKg = null;\n  if(ventesNombreAjustePack>0 && ventesTheoNombre>0){\n    soldKg = ventesNombreAjustePack;\n    theoKg = ventesTheoNombre;\n  } else if(ventesValeur>0 && pu>0 && ventesTheoValeur>0){\n    soldKg = ventesValeur / pu;\n    theoKg = ventesTheoValeur / pu;\n  }\n  \n  if(!(soldKg>0) || !(theoKg>0)) return null;\n  \n  const deltaKg = soldKg - theoKg;\n  const pct = (soldKg/theoKg) - 1;\n  \n  return { soldKg, theoKg, deltaKg, pct };\n}\n\n/* ------------------------------------------------------------------ \n *            Détection des Packs par point de vente                  \n * ------------------------------------------------------------------ */\nfunction collectPackSales(details={}, pvName){\n  const pv = details?.[pvName] || null;\n  if(!pv) return [];\n  \n  const out = [];\n  for(const [k,v] of Object.entries(pv)){\n    if(/^pack/i.test(String(k))){\n      const vs = toNumber(v?.ventesSaisies ?? v?.ventesValeur);\n      const vn = toNumber(v?.ventesNombreAjustePack);\n      if(vs>0 || vn>0){\n        out.push({name:k, vs, vn});\n      }\n    }\n  }\n  out.sort((a,b)=>b.vs - a.vs);\n  return out;\n}\n\n/* ------------------------------------------------------------------ \n *              Totaux globaux (résumé du jour)                       \n * ------------------------------------------------------------------ */\nfunction computeGlobalTotals(resumes=[]){\n  return (Array.isArray(resumes)?resumes:[]).reduce((acc,r)=>{\n    const vs=toNumber(r.ventesSaisies);\n    const vt=toNumber(r.ventesTheoriques);\n    const cp=toNumber(r.cashPayments);\n    // ✅ r.ecart et r.ecartCash sont déjà ajustés côté API (intègrent venteCD)\n    const ec=toNumber(r.ecart);\n    const ecc=toNumber(r.ecartCash);\n    const isAbattage = pvKey(r.pointVente||'') === pvKey('abattage');\n\n    acc.venteJour+=vs;\n    acc.cashJour+=cp;\n    if(!isAbattage){acc.venteTheoJour+=vt;acc.ecartJourHorsAb+=ec;}\n    else{acc.ecartAbattage+=ec;}\n    acc.ecartCashJour+=ecc;\n    return acc;\n  },{venteJour:0,venteTheoJour:0,cashJour:0,ecartJourHorsAb:0,ecartAbattage:0,ecartCashJour:0});\n}\n\nfunction computeAbattageSplit(details={}, volumeB=0, volumeV=0){\n  const ab=details?.Abattage||{};\n  const tB=toNumber(ab?.Boeuf?.transfertsNombre);\n  const tV=toNumber(ab?.Veau?.transfertsNombre);\n  const pctB=(tB>0&&volumeB>0)?(tB/volumeB)*100:0;\n  const pctV=(tV>0&&volumeV>0)?(tV/volumeV)*100:0;\n  return{boeuf:{amount:tB,pct:pctB,volRef:volumeB},veau:{amount:tV,pct:pctV,volRef:volumeV}};\n}\n\n/* ------------------------------------------------------------------ \n *                Créances : collecte / extraction                    \n * ------------------------------------------------------------------ */\nfunction buildCreanceMapFromCode1(){\n  const map=new Map();let fallbackDate=null;\n  const code1Items=safeItems('Code1');const rows=[];\n  for(const it of code1Items){\n    const j0=it?.json;if(!j0)continue;let j=j0;\n    if(typeof j==='string'){try{j=JSON.parse(j)}catch{}}\n    if(Array.isArray(j))rows.push(...j);\n    else if(Array.isArray(j.data))rows.push(...j.data);\n    else rows.push(j);\n  }\n  for(const row of rows){\n    const pvRaw=row.pointVente??row['Point de Vente']??row.point_vente??row.pv;\n    const d=row.date??row.Date??null;\n    if(!pvRaw&&d&&row.differenceCreance==null){fallbackDate=d;continue;}\n    if(!pvRaw)continue;\n    const pv=String(pvRaw).trim();\n    const diff=toNumber(row.differenceCreance);\n    map.set(pvKey(pv),{diff,date:d||fallbackDate||''});\n  }\n  return map;\n}\n\nfunction collectCreancePayloads(){\n  const payloads=[];\n  if(typeof items !== 'undefined' && items && Array.isArray(items)){\n    for(const it of items){\n      let j=it?.json;\n      if(!j)continue;\n      if(typeof j==='string'){try{j=JSON.parse(j)}catch{}}\n      if(j?.summary&&(Array.isArray(j?.details)||j?.summary?.totals))payloads.push(j);\n      if(j?.data?.summary&&(Array.isArray(j?.data?.details)||j?.data?.summary?.totals))payloads.push(j.data);\n      if(Array.isArray(j)){\n        for(const r of j){\n          if(r?.summary&&(Array.isArray(r?.details)||r?.summary?.totals))payloads.push(r);\n          if(r?.data?.summary&&(Array.isArray(r?.data?.details)||r?.data?.summary?.totals))payloads.push(r.data);\n        }\n      }\n    }\n  }\n  const citems=safeItems(CREANCE_NODE);\n  for(const it of citems){\n    let j=it?.json;\n    if(!j)continue;\n    if(typeof j==='string'){try{j=JSON.parse(j)}catch{continue}}\n    if(j?.summary&&(Array.isArray(j?.details)||j?.summary?.totals))payloads.push(j);\n    if(j?.data?.summary&&(Array.isArray(j?.data?.details)||j?.data?.summary?.totals))payloads.push(j.data);\n    if(Array.isArray(j)){\n      for(const r of j){\n        if(r?.summary&&(Array.isArray(r?.details)||r?.summary?.totals))payloads.push(r);\n        if(r?.data?.summary&&(Array.isArray(r?.data?.details)||r?.data?.summary?.totals))payloads.push(r.data);\n      }\n    }\n  }\n  return payloads;\n}\n\nfunction extractCreanceSummaryData(){\n  const payloads=collectCreancePayloads();\n  let totals=null;\n  let balances=[];\n  for(const p of payloads){\n    const s=p?.summary||p?.data?.summary||null;\n    if(!s)continue;\n    if(!totals&&s.totals){\n      totals={\n        current_balance:toNumber(s.totals.current_balance),\n        previous_balance:toNumber(s.totals.previous_balance),\n        total_difference:toNumber(s.totals.total_difference),\n      };\n    }\n    if(balances.length===0&&Array.isArray(s.portfolios)){\n      balances=s.portfolios.map(x=>({\n        portfolio_name:x.portfolio_name||x.portfolio||x.portefeuille||'Portefeuille',\n        current_balance:toNumber(x.current_balance),\n      }));\n    }\n    if(totals&&balances.length)break;\n  }\n  return{totals,balances};\n}\n\n/* ------------------------------------------------------------------ \n *            Analytics (marges & CA mensuels)                        \n * ------------------------------------------------------------------ */\nfunction findFirstAnalyticsRoot(){\n  const candidates = [];\n  if(typeof items !== 'undefined' && items && Array.isArray(items)){\n    for(const it of items){\n      if(it?.json) candidates.push(it.json);\n    }\n  }\n  for(const it of safeItems(ANALYTICS_NODE)){\n    if(it?.json) candidates.push(it.json);\n  }\n  for(const j0 of candidates){\n    let j=j0;\n    if(typeof j==='string'){\n      try{ j=JSON.parse(j);}catch{}\n    }\n    const root = j?.analytics || j?.data?.analytics || j;\n    const hasTotals = root?.totauxGeneraux || root?.totaux || root?.totaux_generaux;\n    if(hasTotals || root?.proxyMarges) return root;\n  }\n  return null;\n}\n\nfunction extractAnalytics(){\n  const root = findFirstAnalyticsRoot();\n  if(!root) return { totals:null, pvMap:new Map() };\n  \n  const tg = root?.totauxGeneraux || root?.totaux || root?.totaux_generaux || {};\n  const totals = {\n    caSans : toNumber(tg.totalChiffreAffairesSansStockSoir ?? tg.caSans ?? tg.total_ca_sans_stock_soir),\n    margeSans: toNumber(tg.totalMargeSansStockSoir ?? tg.margeSans ?? tg.total_marge_sans_stock_soir),\n    caIncl : toNumber(tg.totalChiffreAffaires ?? tg.ca ?? tg.total_ca),\n    margeIncl: toNumber(tg.totalMarge ?? tg.marge ?? tg.total_marge),\n  };\n  \n  const pvRaw = root?.proxyMarges || root?.pv || root?.pointsDeVente || {};\n  const pvMap = new Map();\n  if(pvRaw && typeof pvRaw==='object'){\n    for(const [pvName, obj] of Object.entries(pvRaw)){\n      const t = obj?.totaux || obj || {};\n      pvMap.set(String(pvName), {\n        caSans : toNumber(t.totalChiffreAffairesSansStockSoir ?? t.caSans),\n        margeSans: toNumber(t.totalMargeSansStockSoir ?? t.margeSans),\n        caIncl : toNumber(t.totalChiffreAffaires ?? t.ca),\n        margeIncl: toNumber(t.totalMarge ?? t.marge),\n      });\n    }\n  }\n  return { totals, pvMap };\n}\n\nfunction getPvAnalytics(pvMap, name){\n  if(!pvMap||!name)return null;\n  // match exact\n  for(const [k,v] of pvMap.entries()){\n    if(pvKey(k)===pvKey(name)) return v;\n  }\n  return null;\n}\n\n/* ------------------------------------------------------------------ \n *               Lecture « Get Rec from matix »                       \n * ------------------------------------------------------------------ */\nfunction transformTargetToResume(targetArr){\n  if(!Array.isArray(targetArr)||targetArr.length===0)return null;\n  const t=targetArr[targetArr.length-1]||{};\n  const points=Array.isArray(t.pointsDeVente)?t.pointsDeVente:[];\n  const out=[];\n  for(const pv of points){\n    const name=pv.PointDeVente??pv.pointVente??pv.pdv??'Point de Vente';\n    const details=Array.isArray(pv.details)?pv.details:[];\n    let vs=0;\n    let vt=0;\n    for(const d of details){\n      const prod=d.Produit??d.produit??d.product;\n      if(!keepProduct(prod))continue;\n      const stockMatin=toNumber(d.StockMatin??d.stock_matin??d.stockMatin);\n      const stockSoir =toNumber(d.StockSoir ??d.stock_soir ??d.stockSoir);\n      const transf =toNumber(d.Transferts??d.transferts??d.transfertsNombre);\n      const vTheo =toNumber(d.VentesTheoriques??d.ventesTheoriques);\n      const vSaisies =stockMatin+transf-stockSoir;\n      vs+=vSaisies;\n      vt+=vTheo;\n    }\n    if(vs===0&&vt===0)continue;\n    const ecart=vt-vs;\n    const ecartPct=(Math.abs(vt)>0)?(ecart/Math.abs(vt))*100:0;\n    out.push({pointVente:name,ventesSaisies:vs,ventesTheoriques:vt,cashPayments:0,ecart,ecartPct,ecartCash:0,ecartCashPct:0});\n  }\n  return{date:normalizeDateStr(t.date??t.Date??t.jour),resume:out};\n}\n\nfunction collectRecData(){\n  // 1) essayer dans \"items\"\n  if(typeof items !== 'undefined' && items && Array.isArray(items)){\n    for(const it of items){\n      let j=it?.json;\n      if(!j)continue;\n      if(typeof j==='string'){try{j=JSON.parse(j)}catch{}}\n      if(j?.resume&&Array.isArray(j.resume))return j;\n      if(j?.data?.resume&&Array.isArray(j.data.resume))return j.data;\n      if(Array.isArray(j?.target)){const t=transformTargetToResume(j.target); if(t)return t;}\n      if(Array.isArray(j?.data?.target)){const t=transformTargetToResume(j.data.target); if(t)return t;}\n      if(Array.isArray(j)){\n        for(const r of j){\n          if(r?.resume&&Array.isArray(r.resume))return r;\n          if(r?.data?.resume&&Array.isArray(r.data.resume))return r.data;\n          if(Array.isArray(r?.target)){const t=transformTargetToResume(r.target); if(t)return t;}\n          if(Array.isArray(r?.data?.target)){const t=transformTargetToResume(r.data.target); if(t)return t;}\n        }\n      }\n    }\n  }\n  // 2) essayer dans les nodes REC_NODES\n  for(const name of REC_NODES){\n    const arr=safeItems(name);\n    for(const it of arr){\n      let j=it?.json;\n      if(!j)continue;\n      if(typeof j==='string'){try{j=JSON.parse(j)}catch{}}\n      if(j?.data?.resume&&Array.isArray(j.data.resume))return j.data;\n      if(j?.resume&&Array.isArray(j.resume))return j;\n      if(Array.isArray(j?.target)){const t=transformTargetToResume(j.target); if(t)return t;}\n      if(Array.isArray(j?.data?.target)){const t=transformTargetToResume(j.data.target); if(t)return t;}\n      if(Array.isArray(j)){\n        for(const r of j){\n          if(r?.data?.resume&&Array.isArray(r.data.resume))return r.data;\n          if(r?.resume&&Array.isArray(r.resume))return r;\n          if(Array.isArray(r?.target)){const t=transformTargetToResume(r.target); if(t)return t;}\n          if(Array.isArray(r?.data?.target)){const t=transformTargetToResume(r.data.target); if(t)return t;}\n        }\n      }\n    }\n  }\n  return null;\n}\n\nfunction pickSelectedDateNorm(data,recData){\n  const d1=normalizeDateStr(data?.date);\n  if(d1)return d1;\n  if(typeof items !== 'undefined' && items && Array.isArray(items) && items.length > 0){\n    const d2=normalizeDateStr(items[0]?.json?.summary?.date_selected);\n    if(d2)return d2;\n  }\n  const payloads=collectCreancePayloads();\n  for(const p of payloads){const d=normalizeDateStr(p?.summary?.date_selected); if(d)return d;}\n  const d3=normalizeDateStr(recData?.date);\n  if(d3)return d3;\n  return '';\n}\n\n/* ------------------------------------------------------------------ \n *            Opérations portefeuille (créances / bank)               \n * ------------------------------------------------------------------ */\nfunction buildOpsByPortfolioForDate(selectedDateNorm){\n  const map=new Map();\n  const seen=new Set();\n  let diag={payloads:0,portfolios:0,opsScanned:0,opsKept:0,dupBlocked:0};\n  \n  function pushOp(portfolioName,op){\n    const dateStr=op.date_operation||op.operation_date||op.date||op.timestamp;\n    const dNorm=normalizeDateStr(dateStr);\n    diag.opsScanned+=1;\n    if(!dNorm||dNorm!==selectedDateNorm)return;\n    const amt=toNumber(op.montant??op.amount);\n    const time=extractTimeStr(op.timestamp||op.date||'');\n    const typ=op.type||'Opération';\n    const ref=op.client||op.reference||'s/o';\n    const keyPortfolio=String(portfolioName||'Portefeuille').trim();\n    const uniq=`${keyPortfolio}|${dNorm}|${typ}|${ref}|${amt}|${time}`;\n    if(seen.has(uniq)){diag.dupBlocked+=1;return;}\n    seen.add(uniq);\n    if(!map.has(keyPortfolio))map.set(keyPortfolio,{total:0,ops:[]});\n    const entry=map.get(keyPortfolio);\n    entry.total+=amt;\n    entry.ops.push({type:typ,ref,amount:amt,time});\n    diag.opsKept+=1;\n  }\n  \n  const payloads=collectCreancePayloads();\n  diag.payloads=payloads.length;\n  for(const p of payloads){\n    const details=Array.isArray(p?.details)?p.details:(Array.isArray(p?.data?.details)?p.data.details:[]);\n    diag.portfolios+=details.length;\n    for(const pf of details){\n      const name=pf?.portfolio_name||pf?.portfolio||pf?.portefeuille;\n      const ops=Array.isArray(pf?.operations)?pf.operations:[];\n      if(!name||ops.length===0)continue;\n      for(const op of ops)pushOp(name,op);\n    }\n  }\n  \n  const flatCandidates=['OperationsPortefeuille','Operations','Ops','Code2'];\n  const flatItems=flatCandidates.flatMap((n)=>safeItems(n));\n  for(const it of flatItems){\n    let j=it?.json;\n    if(!j)continue;\n    if(typeof j==='string'){try{j=JSON.parse(j)}catch{continue}}\n    const rows=Array.isArray(j)?j:(Array.isArray(j.data)?j.data:[j]);\n    for(const row of rows){\n      const pf=row.portfolio_name??row.portefeuille??row.portfolio??row.Portefeuille;\n      pushOp(pf,row);\n    }\n  }\n  \n  for(const [,entry] of map){\n    entry.ops.sort((a,b)=>{if(a.time&&b.time&&a.time!==b.time)return b.time.localeCompare(a.time);return Math.abs(b.amount)-Math.abs(a.amount);});\n  }\n  return {map,diag};\n}\n\n/* ------------------------------------------------------------------ \n *         NOUVEAU : importantInfo (par point de vente)               \n * ------------------------------------------------------------------ */\nfunction buildImportantInfo(resumes, creanceMap, virementMap, mlcData, breakTolerance = BREAK_TOLERANCE){\n  const out = {};\n\n  for(const res of (Array.isArray(resumes) ? resumes : [])){\n    const pv = res?.pointVente || 'Point de Vente';\n\n    // Vente CD Exécutée (affiché seulement, n'intervient plus dans les calculs)\n    const venteCdExecutee = toNumber(res?.ventesSaisiesRecuesParCentreDecoupe);\n\n    // ✅ res.ecart et res.ecartPct sont déjà ajustés côté API (intègrent venteCD)\n    const ecartValue = toNumber(res?.ecart);\n    const ecartPct = toNumber(res?.ecartPct);\n\n    // Delta créance\n    const creanceInfo = creanceMap?.get(pvKey(pv)) || null;\n    const deltaCreance = toNumber(creanceInfo?.diff);\n\n    // Virement\n    const virement = toNumber(getVirementForPv(virementMap, pv));\n\n    // ✅ res.ecartCash est déjà ajusté côté API (intègre venteCD)\n    const isAbattage = pvKey(pv) === pvKey('abattage');\n    let ecartCashValue = toNumber(res?.ecartCash);\n\n    // Spécifique Abattage : écartCash = cashPayments - ventesSaisies (comme dans le HTML)\n    if(isAbattage){\n      const cashPayments = toNumber(res?.cashPayments);\n      const ventesSaisies = toNumber(res?.ventesSaisies);\n      ecartCashValue = cashPayments - ventesSaisies;\n    }\n\n    // ✅ Break = Écart Cash + Delta Créance + Virement\n    const breakSum = ecartCashValue + deltaCreance + virement;\n    const breakOK = Math.abs(breakSum) <= toNumber(breakTolerance);\n\n    // Retour clients (MLC)\n    let retourClients = null;\n    if(mlcData){\n      const sentiment = getMlcSentimentForPv(mlcData, pv);\n      if(sentiment && sentiment.sentiment_description){\n        retourClients = {\n          description: sentiment.sentiment_description,\n          date_analyse: sentiment.date_analyse ? normalizeDateStr(sentiment.date_analyse) : '',\n          nombre_commentaires: toNumber(sentiment.nombre_commentaires || 0),\n          notes_detaillees: sentiment.notes_detaillees || null\n        };\n      }\n    }\n\n    out[pv] = {\n      ecartVente: {\n        valeur: ecartValue,\n        pct: ecartPct\n      },\n      breaks: {\n        statut: breakOK ? 'No Break' : 'Break',\n        valeur: breakSum\n      },\n      venteCdExecutee,\n      retourClients // null si absent\n    };\n  }\n\n  return out;\n}\n\n/* ------------------------------------------------------------------ \n *                     Génération HTML                                \n * ------------------------------------------------------------------ */\nfunction generateEmailHTML(\n  data, creanceMap, virementMap, opsPack, selectedDateNorm,\n  creanceTotals, balances, analyticsTotals, analyticsPvMap,\n  extraKpis={}, mlcData=null, pvStatusMap=null\n){\n  const { map: opsByPortfolioMap } = opsPack||{map:new Map()};\n  const { bictorysBalanceJour = 0, bictorysCashMois = 0 } = extraKpis;\n  \n  const { date, resume: resumes=[], details={} } = data||{resume:[],details:{}};\n  \n  const { venteJour, venteTheoJour, cashJour, ecartJourHorsAb, ecartAbattage, ecartCashJour } = computeGlobalTotals(resumes);\n  const ecartJourInclAb = ecartJourHorsAb + ecartAbattage;\n  \n  let volumeAbattoirBoeuf = 0;\n  let volumeAbattoirVeau = 0;\n  if(data?.volumeAbattoirBoeuf !== undefined){\n    volumeAbattoirBoeuf = toNumber(data.volumeAbattoirBoeuf);\n  } else if(typeof items !== 'undefined' && items && Array.isArray(items) && items.length > 0){\n    volumeAbattoirBoeuf = toNumber(items[0]?.json?.data?.volumeAbattoirBoeuf ?? items[0]?.json?.volumeAbattoirBoeuf);\n  }\n  if(data?.volumeAbattoirVeau !== undefined){\n    volumeAbattoirVeau = toNumber(data.volumeAbattoirVeau);\n  } else if(typeof items !== 'undefined' && items && Array.isArray(items) && items.length > 0){\n    volumeAbattoirVeau = toNumber(items[0]?.json?.data?.volumeAbattoirVeau ?? items[0]?.json?.volumeAbattoirVeau);\n  }\n  \n  const abSplit = computeAbattageSplit(details, volumeAbattoirBoeuf, volumeAbattoirVeau);\n  \n  const selected = selectedDateNorm || normalizeDateStr(date) || '—';\n  \n  // === Tri PV non case sensitive ===\n  const ordre = ['O.Foire','Mbao','Keur Massar','Linguere','Dahra','Sacre Coeur','Chambre froide','Abattage'].map(pvKey);\n  (Array.isArray(resumes)?resumes:[]).sort((a,b)=>{\n    const ia=ordre.indexOf(pvKey(a.pointVente));\n    const ib=ordre.indexOf(pvKey(b.pointVente));\n    const ra=ia===-1?ordre.length:ia;\n    const rb=ib===-1?ordre.length:ib;\n    return ra-rb;\n  });\n  \n  // ✅ r.ecartPct et r.ecartCash sont déjà ajustés côté API\n  const alerts = (Array.isArray(resumes)?resumes:[]).flatMap(({ ecartPct, ecartCash })=>{\n    const list=[];const pctv=toNumber(ecartPct);const cash=toNumber(ecartCash);\n    if(pctv>ALERT_ECART_PCT)list.push(`Écart &gt; ${ALERT_ECART_PCT} % (${pctv.toFixed(2)} %)`);\n    if(cash>ALERT_ECART_CASH)list.push(`Écart Cash &gt; ${formatCurrency(ALERT_ECART_CASH)} (${formatCurrency(cash)})`);\n    return list;\n  });\n  \n  const tableBase='width:100%;border-collapse:collapse;margin:8px 0;';\n  const thBase='text-align:left;padding:8px;border-bottom:1px solid #E5E7EB;background:#F8FAFC;font-weight:600;font-size:14px;color:#111827;';\n  const tdBase='padding:8px;border-bottom:1px solid #F1F5F9;font-size:14px;color:#111827;';\n  const thPV='text-align:left;padding:10px;border-bottom:2px solid #94A3B8;background:#F1F5F9;font-weight:700;font-size:14px;color:#0F172A;';\n  const tdPV='padding:10px;border-bottom:2px solid #94A3B8;font-size:14px;color:#111827;';\n  const sectionTitle='margin:18px 0 8px 0;font-size:16px;font-weight:700;color:#111827;';\n  const kpiCard='padding:8px 10px;border:1px solid #E5E7EB;border-radius:10px;background:#FFFFFF;';\n  \n  const ecartPctGlobalHors = (Math.abs(venteTheoJour)>0)?(ecartJourHorsAb/Math.abs(venteTheoJour))*100:null;\n  const ecartPctGlobalIncl = (Math.abs(venteTheoJour)>0)?(ecartJourInclAb/Math.abs(venteTheoJour))*100:null;\n  const ecartCashPctGlobal = (Math.abs(cashJour)>0)?(ecartCashJour/Math.abs(cashJour))*100:null;\n  \n  // === Perrations globales ===\n  function aggregatePerrationGlobal(prod){\n    let sold=0, theo=0;\n    for(const r of (Array.isArray(resumes)?resumes:[])){\n      const pv = r.pointVente;\n      const low = pvKey(pv);\n      if(low===pvKey('abattage') || low===pvKey('chambre froide')) continue;\n      const pr = computePerrationKg(pv, prod, details);\n      if(pr && pr.soldKg!=null && pr.theoKg!=null){\n        sold += pr.soldKg;\n        theo += pr.theoKg;\n      }\n    }\n    if(!(sold>0) || !(theo>0)) return null;\n    return { sold, theo, delta: sold-theo, pct: (sold/theo)-1 };\n  }\n  \n  const renderPerrBox = (label, pack) => `<div style=\"${kpiCard}\">\n  <div>Perration globale — ${label}</div>\n  <div style=\"font-size:16px;font-weight:700;margin-top:2px;\">\n    ${pack ? spanPercent(pack.pct*100) : '&nbsp;'}\n    ${pack ? `<span style=\"font-size:12px;color:#6B7280\">(${formatNumber(pack.sold)} / ${formatNumber(pack.theo)} kg, Δ ${pack.delta>=0?'+':''}${formatNumber(Number(pack.delta.toFixed(2)))} kg)</span>` : ''}\n  </div>\n</div>`;\n  \n  // ---------- En-tête + KPI ----------\n  let html = `<div style=\"margin:0;padding:0;background:#F8FAFC;\">\n  <div style=\"width:100%;margin:0;padding:12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;color:#0F172A;\">\n    \n    <div style=\"margin-bottom:8px;\">\n      <div style=\"font-size:18px;font-weight:800;color:#111827;\">Rapport quotidien MATA</div>\n      <div style=\"font-size:13px;color:#475569;\">Date d'analyse : <strong>${esc(date || selected)}</strong></div>\n    </div>\n    \n    <table style=\"width:100%;border-collapse:separate;border-spacing:8px 8px;margin:2px 0 10px 0;\">\n      <tbody>\n        <tr>\n          <td style=\"width:33.33%;vertical-align:top;\"><div style=\"${kpiCard}\"><div>Vente du jour (saisies) :</div><span style=\"font-size:16px;font-weight:700\">${spanAmount(venteJour)}</span></div></td>\n          <td style=\"width:33.33%;vertical-align:top;\"><div style=\"${kpiCard}\"><div>Vente théorique (hors Abattage) :</div><span style=\"font-size:16px;font-weight:700\">${spanAmount(venteTheoJour)}</span></div></td>\n          <td style=\"width:33.33%;vertical-align:top;\"><div style=\"${kpiCard}\"><div>Transferts Abattage (nombres) :</div>\n            <div style=\"margin-top:6px;display:flex;justify-content:space-between;\"><div style=\"font-size:13px;\">Bœuf:</div><span style=\"font-size:13px;font-weight:700;color:#7F1D1D;\">${(abSplit.boeuf.amount>0)?`${formatNumber(abSplit.boeuf.amount)} • ${pctStr(abSplit.boeuf.pct)}`:'N.A'}</span></div>\n            <div style=\"margin-top:4px;display:flex;justify-content:space-between;\"><div style=\"font-size:13px;\">Veau:</div><span style=\"font-size:13px;font-weight:700;color:#7F1D1D;\">${(abSplit.veau.amount>0)?`${formatNumber(abSplit.veau.amount)} • ${pctStr(abSplit.veau.pct)}`:'N.A'}</span></div>\n          </div></td>\n        </tr>\n        <tr>\n          <td style=\"width:33.33%;vertical-align:top;\"><div style=\"${kpiCard}\"><div>Écart global (hors Abattage) :</div><span style=\"font-size:16px;font-weight:700\">${spanAmount(ecartJourHorsAb)}</span></div></td>\n          <td style=\"width:33.33%;vertical-align:top;\"><div style=\"${kpiCard}\"><div>Écart global (incl. Abattage) :</div><span style=\"font-size:16px;font-weight:700\">${spanAmount(ecartJourInclAb)}</span></div></td>\n          <td style=\"width:33.33%;vertical-align:top;\"><div style=\"${kpiCard}\"><div>Écart Cash global :</div><span style=\"font-size:16px;font-weight:700\">${spanAmount(ecartCashJour)}</span></div></td>\n        </tr>\n        <tr>\n          <td style=\"width:33.33%;vertical-align:top;\"><div style=\"${kpiCard}\"><div>Écart global % (hors Abattage / VT hors Ab.) :</div><span style=\"font-size:16px;font-weight:700\">${ecartPctGlobalHors==null?'':spanPercent(ecartPctGlobalHors)}</span></div></td>\n          <td style=\"width:33.33%;vertical-align:top;\"><div style=\"${kpiCard}\"><div>Écart global % (incl. Abattage / VT hors Ab.) :</div><span style=\"font-size:16px;font-weight:700\">${ecartPctGlobalIncl==null?'':spanPercent(ecartPctGlobalIncl)}</span></div></td>\n          <td style=\"width:33.33%;vertical-align:top;\"><div style=\"${kpiCard}\"><div>Écart Cash global % (sur Cash Bictorys du jour) :</div><span style=\"font-size:16px;font-weight:700\">${ecartCashPctGlobal==null?'':spanPercent(ecartCashPctGlobal)}</span></div></td>\n        </tr>\n        <tr>\n          <td style=\"width:33.33%;vertical-align:top;\"><div style=\"${kpiCard}\"><div>Balance Bictorys du jour :</div><span style=\"font-size:16px;font-weight:700\">${spanAmount(bictorysBalanceJour)}</span></div></td>\n          <td style=\"width:33.33%;vertical-align:top;\"><div style=\"${kpiCard}\"><div>Cash Bictorys du mois :</div><span style=\"font-size:16px;font-weight:700\">${spanAmount(bictorysCashMois)}</span></div></td>\n          <td style=\"width:33.33%;vertical-align:top;\"></td>\n        </tr>`;\n\n  // Nouvelles cartes MLC\n  if(mlcData){\n    html += `\n        <tr>\n          <td style=\"width:33.33%;vertical-align:top;\">\n            <div style=\"${kpiCard}\">\n              <div>Commandes livrées (MLC) :</div>\n              <span style=\"font-size:16px;font-weight:700\">${formatNumber(mlcData.nombreCommandes)}</span>\n            </div>\n          </td>\n          <td style=\"width:33.33%;vertical-align:top;\">\n            <div style=\"${kpiCard}\">\n              <div>Panier moyen (MLC) :</div>\n              <span style=\"font-size:16px;font-weight:700\">${spanAmount(mlcData.panierMoyen)}</span>\n            </div>\n          </td>\n          <td style=\"width:33.33%;vertical-align:top;\">\n            <div style=\"${kpiCard}\">\n              <div>Valeur totale livrée (MLC) :</div>\n              <span style=\"font-size:16px;font-weight:700\">${spanAmount(mlcData.panierTotalJour)}</span>\n            </div>\n          </td>\n        </tr>`;\n    \n    // Carte sentiment global\n    if(mlcData.sentimentGlobal){\n      const sg = mlcData.sentimentGlobal;\n      const sentimentColor = sg.sentiment_global === 'POSITIF' ? '#1B5E20' : \n                             (sg.sentiment_global === 'NEGATIF' ? '#B71C1C' : '#5D4037');\n      \n      let notesHtml = '';\n      if(sg.notes_detaillees){\n        const notes = sg.notes_detaillees;\n        const noteItems = [];\n        if(notes.service_livraison != null) noteItems.push(`Livraison: ${notes.service_livraison}/10`);\n        if(notes.qualite_produits != null) noteItems.push(`Qualité: ${notes.qualite_produits}/10`);\n        if(notes.niveau_prix != null) noteItems.push(`Prix: ${notes.niveau_prix}/10`);\n        if(notes.service_commercial != null) noteItems.push(`Commercial: ${notes.service_commercial}/10`);\n        if(notes.note_globale_moyenne != null) noteItems.push(`Moyenne: ${notes.note_globale_moyenne}/10`);\n        \n        if(noteItems.length > 0){\n          notesHtml = `<div style=\"font-size:11px;color:#64748B;margin-top:6px;\">📊 ${noteItems.join(' • ')}</div>`;\n        }\n      }\n      \n      html += `\n        <tr>\n          <td colspan=\"3\" style=\"width:100%;vertical-align:top;\">\n            <div style=\"${kpiCard}\">\n              <div style=\"font-weight:700;margin-bottom:4px;\">\n                Analyse sentiment client global \n                <span style=\"color:${sentimentColor};font-weight:700;\">(${esc(sg.sentiment_global || 'N/A')})</span>\n                ${sg.date_analyse ? `<span style=\"font-size:12px;color:#64748B;font-weight:400;\"> - Analysé le ${esc(normalizeDateStr(sg.date_analyse))}</span>` : ''}\n              </div>\n              <div style=\"font-size:14px;color:#374151;line-height:1.5;\">${esc(sg.sentiment_description || 'Aucune description disponible')}</div>\n              ${notesHtml}\n            </div>\n          </td>\n        </tr>`;\n    }\n  }\n  \n  html += `\n      </tbody>\n    </table>\n`;\n  \n  // Perrations (boîtes)\n  html += `<table style=\"width:100%;border-collapse:separate;border-spacing:8px 8px;margin:0 0 10px 0;\">\n      <tbody>\n        <tr>\n          <td style=\"width:50%;vertical-align:top;\">\n            ${renderPerrBox('Bœuf', aggregatePerrationGlobal('Boeuf'))}\n            <div style=\"height:8px\"></div>\n            ${renderPerrBox('Agneau', aggregatePerrationGlobal('Agneau'))}\n          </td>\n          <td style=\"width:50%;vertical-align:top;\">\n            ${renderPerrBox('Veau', aggregatePerrationGlobal('Veau'))}\n          </td>\n        </tr>\n      </tbody>\n    </table>\n`;\n\n  /* ---------------------\n     Carte « Marge totale du mois »\n     --------------------- */\n  if(analyticsTotals && (analyticsTotals.margeSans>0 || analyticsTotals.margeIncl>0)){\n    const pctSans = pct(analyticsTotals.margeSans, analyticsTotals.caSans);\n    const pctIncl = pct(analyticsTotals.margeIncl, analyticsTotals.caIncl);\n    html += `<table style=\"width:100%;border-collapse:separate;border-spacing:8px 8px;margin:0 0 10px 0;\">\n      <tbody>\n        <tr>\n          <td style=\"width:100%;vertical-align:top;\">\n            <div style=\"${kpiCard}\">\n              <div style=\"font-weight:700;margin-bottom:2px;\">Marge totale du mois</div>\n              <div style=\"font-size:13px;line-height:1.45\">• <strong>MM</strong> : ${spanAmount(analyticsTotals.margeSans)}</div>\n              <div style=\"font-size:13px;line-height:1.45\">• <strong>MMASS</strong> : ${spanAmount(analyticsTotals.margeIncl)}</div>\n              <div style=\"font-size:13px;line-height:1.45\">• <strong>Per. %</strong> : <strong>${pctSans.toFixed(2)} %</strong> <span style=\"color:#64748B\">(Adj.: ${pctIncl.toFixed(2)} %)</span></div>\n            </div>\n          </td>\n        </tr>\n      </tbody>\n    </table>`;\n  }\n  \n  /* ---------------------\n     Créances (totaux)\n     --------------------- */\n  if(creanceTotals){\n    const tType = creanceTotals.total_difference<0?'ok':(creanceTotals.total_difference>0?'danger':'info');\n    html += `<div style=\"${sectionTitle}\">Créances (totaux)</div>\n    <table style=\"${tableBase}\">\n      <tr><th style=\"${thBase}\">Créance totale aujourd'hui</th><td style=\"${tdBase}\">${spanAmount(creanceTotals.current_balance)}</td></tr>\n      <tr><th style=\"${thBase}\">Créance totale hier</th><td style=\"${tdBase}\">${spanAmount(creanceTotals.previous_balance)}</td></tr>\n      <tr><th style=\"${thBase}\">Delta créance</th><td style=\"${tdBase}\">${spanAmount(creanceTotals.total_difference)} &nbsp;${chip(creanceTotals.total_difference>0?'Hausse':(creanceTotals.total_difference<0?'Baisse':'Stable'), tType)}</td></tr>\n    </table>`;\n  }\n  \n  if(Array.isArray(balances) && balances.length>0){\n    const sorted=[...balances].sort((a,b)=>String(a.portfolio_name).localeCompare(String(b.portfolio_name),'fr'));\n    html+= `<div style=\"${sectionTitle}\">Soldes actuels par portefeuille</div>\n    <table style=\"${tableBase}\">\n      <thead><tr><th style=\"${thBase};width:45%\">Portefeuille</th><th style=\"${thBase};width:55%\">Solde courant</th></tr></thead>\n      <tbody>${sorted.map(b=>`<tr><td style=\"${tdBase}\">${esc(b.portfolio_name)}</td><td style=\"${tdBase}\">${spanAmount(b.current_balance)}</td></tr>`).join('')}</tbody>\n    </table>`;\n  }\n  \n  // --------------------- Analyse par point de vente ---------------------\n  html += `<div style=\"${sectionTitle}\">Analyse par point de vente</div>\n    <table style=\"${tableBase}\">\n      <thead>\n        <tr>\n          <th style=\"${thPV}\">Point de Vente</th>\n          <th style=\"${thPV}\">Marge du mois</th>\n          <th style=\"${thPV}\">Ratios</th>\n          <th style=\"${thPV}\">Écart</th>\n          <th style=\"${thPV}\">Breaks</th>\n          <th style=\"${thPV}\">Écart Cash</th>\n          <th style=\"${thPV}\">Delta Créance</th>\n          <th style=\"${thPV}\">Virement</th>\n          <th style=\"${thPV}\">Ventes Saisies</th>\n          <th style=\"${thPV}\">Vente CD Exécutée</th>\n          <th style=\"${thPV}\">Variation de stock</th>\n          <th style=\"${thPV}\">Versement Bictorys</th>\n          <th style=\"${thPV}\">Retour clients</th>\n          <th style=\"${thPV}\">PV Status</th>\n          <th style=\"${thPV}\">PV Client</th>\n          <th style=\"${thPV}\">Commentaire</th>\n        </tr>\n      </thead>\n      <tbody>`;\n  \n  for(const res of (Array.isArray(resumes)?resumes:[])){\n    const { pointVente, ecart, ecartPct, ecartCash, ecartCashPct, ventesSaisies, ventesTheoriques, cashPayments, ventesSaisiesRecuesParCentreDecoupe } = res||{};\n    const venteCdExecutee = toNumber(ventesSaisiesRecuesParCentreDecoupe);\n\n    // Créance (lookup non case sensitive)\n    const creanceInfo = creanceMap.get(pvKey(pointVente)) || null;\n    const creanceLabelDate = normalizeDateStr(creanceInfo?.date) || normalizeDateStr(date) || selected;\n    const creanceValue = creanceInfo ? creanceInfo.diff : 0;\n\n    // Virement (lookup non case sensitive)\n    const virementValue = getVirementForPv(virementMap, pointVente);\n\n    // Statuts\n    const pvStatus = getPvStatusForPv(pvStatusMap, pointVente);\n\n    // --- PV Status cell (responsable) ---\n    let pvStatusCell = '—';\n    if(pvStatus && pvStatus.statusSummary){\n      const smallDate = pvStatus.parentDate ? ` (${esc(pvStatus.parentDate)})` : '';\n      const tag = pvStatus.statusSentiment ? `<div style=\"font-size:11px;color:#64748B;margin-top:2px;\">${esc(String(pvStatus.statusSentiment).toUpperCase())}${smallDate}</div>` : `<div style=\"font-size:11px;color:#64748B;margin-top:2px;\">${smallDate.slice(1,-1)}</div>`;\n      pvStatusCell = `<div style=\"font-size:13px;line-height:1.45\">${esc(pvStatus.statusSummary)}</div>${tag}`;\n    }\n\n    // --- PV Client cell (clients) ---\n    let pvClientCell = '—';\n    if(pvStatus && pvStatus.clientSummary){\n      const cDate = pvStatus.clientDate ? normalizeDateStr(pvStatus.clientDate) : '';\n      const smallDate = cDate ? ` (${esc(cDate)})` : '';\n      const tag = pvStatus.clientSentiment ? `<div style=\"font-size:11px;color:#64748B;margin-top:2px;\">${esc(String(pvStatus.clientSentiment).toUpperCase())}${smallDate}</div>` : `<div style=\"font-size:11px;color:#64748B;margin-top:2px;\">${smallDate.slice(1,-1)}</div>`;\n      pvClientCell = `<div style=\"font-size:13px;line-height:1.45\">${esc(pvStatus.clientSummary)}</div>${tag}`;\n    }\n    \n    const perrB = computePerrationKg(pointVente,'Boeuf',details);\n    const perrV = computePerrationKg(pointVente,'Veau', details);\n    const perrA = computePerrationKg(pointVente,'Agneau', details);\n    \n    // --- Colonne « Marge du mois » (PV) – abréviations ---\n    let margeCell = '—';\n    const agg = getPvAnalytics(analyticsPvMap, pointVente);\n    if(agg){\n      const pvPctSans = pct(agg.margeSans, agg.caSans);\n      margeCell =\n        `<div style=\"font-size:13px;line-height:1.45\"><strong>MM</strong> : ${spanAmount(agg.margeSans)}</div>`\n      + `<div style=\"font-size:13px;line-height:1.45\"><strong>MMASS</strong> : ${spanAmount(agg.margeIncl)}</div>`\n      + `<div style=\"font-size:13px;line-height:1.45\"><strong>Per. %</strong> : <strong>${pvPctSans.toFixed(2)} %</strong></div>`;\n    }\n    \n    const fmtLine = (lbl, pack)=>{\n      if(!pack) return '';\n      if(pack.soldKg==null || pack.theoKg==null){\n        return `${lbl} : ${spanPercent((pack.pct||0)*100)}`;\n      }\n      const delta = (pack.deltaKg>=0?'+':'') + Number(pack.deltaKg.toFixed(1));\n      return `${lbl} : Δ = ${delta} kg, ${spanPercent((pack.pct||0)*100)} <br/><span style=\"font-size:12px;color:#6B7280\">(${formatNumber(Number(pack.soldKg.toFixed(1)))} / ${formatNumber(Number(pack.theoKg.toFixed(1)))} kg)</span>`;\n    };\n    \n    const packs = collectPackSales(details, pointVente);\n    const hasPacks = Array.isArray(packs) && packs.length>0;\n    const packLines = hasPacks\n      ? `<span style=\"font-size:12px;color:#374151\">Packs :</span><br/>`\n        + packs.map(p=>`${esc(p.name)} : ${formatCurrency(p.vs)} <span style=\"font-size:12px;color:#6B7280\">(n=${formatNumber(p.vn)})</span>`).join('<br/>')\n      : '';\n    \n    const ratiosLines = []\n      .concat(perrB? [fmtLine('Bœuf', perrB)] : [])\n      .concat(perrV? [fmtLine('Veau', perrV)] : [])\n      .concat(perrA? [fmtLine('Agneau', perrA)] : [])\n      .concat(packLines? [packLines] : []);\n    \n    const ratiosCell = (Array.isArray(ratiosLines) && ratiosLines.length>0) ? ratiosLines.join('<br/>') : '—';\n    \n    // --- Colonne « Retour clients » (MLC) ---\n    let retourClientsCell = '—';\n    if(mlcData){\n      const sentiment = getMlcSentimentForPv(mlcData, pointVente);\n      if(sentiment && sentiment.sentiment_description){\n        const nbComm = sentiment.nombre_commentaires || 0;\n        const dateAnalyse = sentiment.date_analyse ? normalizeDateStr(sentiment.date_analyse) : '';\n        \n        retourClientsCell = `<div style=\"font-size:13px;line-height:1.4;\">${esc(sentiment.sentiment_description)}</div>`;\n        \n        if(dateAnalyse || nbComm > 0){\n          retourClientsCell += `<div style=\"font-size:11px;color:#64748B;margin-top:4px;\">`;\n          if(dateAnalyse) retourClientsCell += `Analysé: ${esc(dateAnalyse)}`;\n          if(nbComm > 0) retourClientsCell += ` (${nbComm} commentaire${nbComm>1?'s':''})`;\n          retourClientsCell += `</div>`;\n        }\n        \n        if(sentiment.notes_detaillees){\n          const notes = sentiment.notes_detaillees;\n          const noteItems = [];\n          if(notes.service_livraison != null) noteItems.push(`Livraison: ${notes.service_livraison}/10`);\n          if(notes.qualite_produits != null) noteItems.push(`Qualité: ${notes.qualite_produits}/10`);\n          if(notes.niveau_prix != null) noteItems.push(`Prix: ${notes.niveau_prix}/10`);\n          if(notes.service_commercial != null) noteItems.push(`Commercial: ${notes.service_commercial}/10`);\n          if(notes.note_globale_moyenne != null) noteItems.push(`Moyenne: ${notes.note_globale_moyenne}/10`);\n          \n          if(noteItems.length > 0){\n            retourClientsCell += `<div style=\"font-size:10px;color:#64748B;margin-top:4px;\">📊 ${noteItems.join(' • ')}</div>`;\n          }\n        }\n      }\n    }\n    \n    let commentText = getResumeComment(res);\n    let commentCell;\n    if(pvKey(pointVente)===pvKey('abattage') && shouldHideCommentForAbattage(commentText)){\n      commentText='';\n      commentCell=`<td style=\"${tdPV}\"></td>`;\n    } else {\n      commentCell=`<td style=\"${tdPV}\">${commentText?esc(commentText):'—'}</td>`;\n    }\n    \n    if(pvKey(pointVente)===pvKey('abattage')){\n      const abEcartCash = toNumber(cashPayments) - toNumber(ventesSaisies);\n      const abEcartCashPct = (Math.abs(toNumber(cashPayments))>0)?(abEcartCash/Math.abs(toNumber(cashPayments)))*100:0;\n\n      // ✅ Break = écartCash + deltaCréance + virement (ecartCash déjà ajusté côté API)\n      const breakSum = abEcartCash + toNumber(creanceValue) + toNumber(virementValue);\n      const breakOK = Math.abs(breakSum) <= BREAK_TOLERANCE;\n      const breakCell = breakOK\n        ? `${chip('No Break','ok')}<div style=\"font-size:12px;color:#64748B;margin-top:2px\">0 FCA</div>`\n        : `${chip('Break','danger')}<div style=\"font-size:12px;color:#64748B;margin-top:2px\">${spanAmount(breakSum)}</div>`;\n      const cashAlert = Math.abs(abEcartCash)>ALERT_ECART_CASH;\n      \n      html += `<tr>\n        <td style=\"${tdPV}\"><strong>${esc(pointVente)}</strong></td>\n        <td style=\"${tdPV}\">${margeCell}</td>\n        <td style=\"${tdPV}\">—</td>\n        <td style=\"${tdPV}\">${chip('Abats','info')}</td>\n        <td style=\"${tdPV}\">${breakCell}</td>\n        <td style=\"${tdPV}\">${spanAmount(abEcartCash)}<div style=\"font-size:12px;color:${cashAlert?'#C62828':'#64748B'};\">(${pctStr(abEcartCashPct)})</div></td>\n        <td style=\"${tdPV}\">${spanAmount(creanceValue)}<div style=\"font-size:12px;color:#64748B;\">(${esc(creanceLabelDate)})</div></td>\n        <td style=\"${tdPV}\">${spanAmount(virementValue)}</td>\n        <td style=\"${tdPV}\">${spanAmount(ventesSaisies)}</td>\n        <td style=\"${tdPV}\">${spanAmount(venteCdExecutee)}</td>\n        <td style=\"${tdPV}\">—</td>\n        <td style=\"${tdPV}\">${spanAmount(cashPayments)}</td>\n        <td style=\"${tdPV}\">${retourClientsCell}</td>\n        <td style=\"${tdPV}\">—</td>\n        <td style=\"${tdPV}\">—</td>\n        ${commentCell}\n      </tr>`;\n    } else {\n      // ✅ ecart et ecartPct sont déjà ajustés côté API\n      const pctAlert = toNumber(ecartPct) > ALERT_ECART_PCT;\n      const cashAlert = toNumber(ecartCash) > ALERT_ECART_CASH;\n\n      // ✅ Break = écartCash + deltaCréance + virement (ecartCash déjà ajusté côté API)\n      const breakSum = toNumber(ecartCash) + toNumber(creanceValue) + toNumber(virementValue);\n      const breakOK = Math.abs(breakSum) <= BREAK_TOLERANCE;\n      const breakCell = breakOK\n        ? `${chip('No Break','ok')}<div style=\"font-size:12px;color:#64748B;margin-top:2px\">0 FCA</div>`\n        : `${chip('Break','danger')}<div style=\"font-size:12px;color:#64748B;margin-top:2px\">${spanAmount(breakSum)}</div>`;\n      \n      html += `<tr>\n        <td style=\"${tdPV}\"><strong>${esc(pointVente)}</strong></td>\n        <td style=\"${tdPV}\">${margeCell}</td>\n        <td style=\"${tdPV}\">${ratiosCell}</td>\n        <td style=\"${tdPV}\">${spanAmount(ecart)}<div style=\"font-size:12px;color:${pctAlert?'#C62828':'#64748B'};\">(${pctStr(ecartPct)})</div></td>\n        <td style=\"${tdPV}\">${breakCell}</td>\n        <td style=\"${tdPV}\">${spanAmount(ecartCash)}<div style=\"font-size:12px;color:${cashAlert?'#C62828':'#64748B'};\">(${pctStr(ecartCashPct)})</div></td>\n        <td style=\"${tdPV}\">${spanAmount(creanceValue)} <div style=\"font-size:12px;color:#64748B;\">(${esc(creanceLabelDate)})</div></td>\n        <td style=\"${tdPV}\">${spanAmount(virementValue)}</td>\n        <td style=\"${tdPV}\">${spanAmount(ventesSaisies)}</td>\n        <td style=\"${tdPV}\">${spanAmount(venteCdExecutee)}</td>\n        <td style=\"${tdPV}\">${spanAmount(ventesTheoriques)}</td>\n        <td style=\"${tdPV}\">${spanAmount(cashPayments)}</td>\n        <td style=\"${tdPV}\">${retourClientsCell}</td>\n        <td style=\"${tdPV}\">${pvStatusCell}</td>\n        <td style=\"${tdPV}\">${pvClientCell}</td>\n        ${commentCell}\n      </tr>`;\n    }\n  }\n  \n  if(!(Array.isArray(resumes) && resumes.length>0)){\n    html += `<tr><td colspan=\"16\" style=\"${tdPV};color:#64748B;\">Aucune donnée de point de vente trouvée.</td></tr>`;\n  }\n  \n  html += `</tbody></table>`;\n  \n  /* ---------- Légende des formules ---------- */\n  html += `<div style=\"margin:6px 0 14px 0; padding:8px 10px; background:#F8FAFC; border:1px solid #E5E7EB; border-radius:8px; color:#374151; font-size:12px;\">\n    <div style=\"font-weight:700; margin-bottom:4px;\">Formules utilisées</div>\n    <div style=\"margin-top:2px;\">\n      • <strong>Perration — Chambre froide</strong> : \n      <span style=\"font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;\">\n        perration_CF = |transfertsNombre| / |stockMatinNombre − stockSoirNombre| − 1\n      </span>\n    </div>\n    <div style=\"margin-top:2px;\">\n      • <strong>Perration — autres points de vente (Bœuf, Veau, Agneau)</strong> : \n      <span style=\"font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;\">\n        (ventesNombreAjustePack / ventesTheoriquesNombre) − 1\n      </span>\n    </div>\n    <div style=\"margin-top:2px;\">\n      • <strong>Marge % (PV et mois)</strong> : \n      <span style=\"font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;\">\n        Per. % = totalMargeSansStockSoir / totalChiffreAffairesSansStockSoir\n      </span>\n    </div>\n    <div style=\"margin-top:2px;\">\n      • <strong>Écart</strong> :\n      <span style=\"font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;\">\n        Écart = ventesTheoriques − (ventesSaisies + Vente CD Exécutée)\n      </span>\n    </div>\n    <div style=\"margin-top:2px;\">\n      • <strong>Écart Cash</strong> :\n      <span style=\"font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;\">\n        Écart Cash = cashPayments − (ventesSaisies + Vente CD Exécutée)\n      </span>\n    </div>\n    <div style=\"margin-top:2px;\">\n      • <strong>Break</strong> :\n      <span style=\"font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;\">\n        Break = Écart Cash + Delta Créance + Virement\n      </span>\n    </div>\n  </div>`;\n  \n  // Alertes\n  if(alerts.length){\n    html += `<div style=\"${sectionTitle}\">Alertes</div><ul style=\"margin:6px 0 10px 18px;padding:0;color:#B71C1C;\">${alerts.map(a=>`<li>${a}</li>`).join('')}</ul>`;\n  }\n  \n  // Opérations par portefeuille\n  html += `<div style=\"${sectionTitle}\">Opérations par portefeuille – Date sélectionnée : ${esc(selected)}</div>`;\n  \n  if(!opsByPortfolioMap || opsByPortfolioMap.size===0){\n    html += `<div style=\"padding:10px;border:1px dashed #CBD5E1;border-radius:8px;background:#F8FAFC;color:#475569;\">Aucune opération trouvée pour la date sélectionnée.</div>`;\n  }else{\n    const portfolios = Array.from(opsByPortfolioMap.keys()).sort((a,b)=>String(a).localeCompare(String(b),'fr'));\n    for(const pf of portfolios){\n      const entry=opsByPortfolioMap.get(pf);\n      html += `<div style=\"margin:12px 0 4px 0;font-weight:700;color:#111827;\">Portefeuille : ${esc(pf)}</div>\n      <div style=\"margin:0 0 6px 0;\">Total mouvementé : ${spanAmount(entry.total)}</div>\n      <table style=\"${tableBase}\">\n        <thead><tr><th style=\"${thBase};width:12%\">Heure</th><th style=\"${thBase};width:28%\">Type</th><th style=\"${thBase};width:40%\">Référence</th><th style=\"${thBase};width:20%\">Montant</th></tr></thead>\n        <tbody>${entry.ops.map(op=>`<tr><td style=\"${tdBase}\">${esc(op.time||'')}</td><td style=\"${tdBase}\">${esc(op.type)}</td><td style=\"${tdBase}\">${esc(op.ref)}</td><td style=\"${tdBase};text-align:right;\">${spanAmount(op.amount)}</td></tr>`).join('')}</tbody>\n      </table>`;\n    }\n  }\n  \n  if(DIAG){\n    html += `<div style=\"${sectionTitle}\">[DEBUG]</div><pre style=\"white-space:pre-wrap;font-size:12px;color:#6B7280;background:#F3F4F6;border:1px solid #E5E7EB;border-radius:8px;padding:8px;\">${esc(JSON.stringify(opsPack?.diag||{},null,2))}</pre>`;\n  }\n  \n  html += `<div style=\"margin-top:14px;font-size:12px;color:#64748B;\">Généré automatiquement – DSI MATA / MLC • ${new Date().toISOString().slice(0,16).replace('T',' ')} UTC</div></div></div>`;\n  \n  return html;\n}\n\n/* ------------------------------------------------------------------ \n *                        Orchestration                               \n * ------------------------------------------------------------------ */\nconst recData = collectRecData();\n\nlet baseData = {};\nif(typeof items !== 'undefined' && items && Array.isArray(items) && items.length > 0){\n  baseData = items[0]?.json?.data || items[0]?.json || {};\n}\n\nconst data = (recData && Array.isArray(recData.resume) && recData.resume.length>0) ? recData : baseData;\n\nconst creanceMap = buildCreanceMapFromCode1();\nconst selectedDateNorm = pickSelectedDateNorm(data, recData);\n\nconst creanceSummary = extractCreanceSummaryData() || {};\nconst creanceTotals = creanceSummary.totals || null;\nconst balances = creanceSummary.balances || [];\n\nconst opsPack = buildOpsByPortfolioForDate(selectedDateNorm);\n\n// Analytics (mois + PV)\nconst { totals: analyticsTotals, pvMap: analyticsPvMap } = extractAnalytics();\n\nconst bictorysBalanceJour = readNodeAmount('Get balance');\nconst bictorysCashMois = readNodeAmount('format amount');\n\n// Extraction des données MLC\nconst mlcData = extractMlcData();\n\n// Extraction des statuts par PV (responsable + clients)\nconst pvStatusMap = extractPvStatusData();\n\n// ✅ virementMap\nconst virementMap = extractVirementMap(selectedDateNorm);\n\nconst html = generateEmailHTML(\n  data,\n  creanceMap,\n  virementMap,\n  opsPack,\n  selectedDateNorm,\n  creanceTotals,\n  balances,\n  analyticsTotals,\n  analyticsPvMap,\n  { bictorysBalanceJour, bictorysCashMois },\n  mlcData,\n  pvStatusMap\n);\n\nconst text = html\n  .replace(/<style[\\s\\S]*?<\\/style>/gi,'')\n  .replace(/<[^>]+>/g,'')\n  .replace(/\\n{3,}/g,'\\n\\n')\n  .trim();\n\nconst importantInfo = buildImportantInfo(\n  data?.resume,\n  creanceMap,\n  virementMap,\n  mlcData,\n  BREAK_TOLERANCE\n);\n\n\nreturn [{\n  json:{\n    subject:`📊 Rapport quotidien MATA — ${data?.date || selectedDateNorm || ''}`,\n    html,\n    text,\n    importantInfo\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1152,
+        768
+      ],
+      "id": "b0c68a6f-d4f4-4a00-a5d1-413bbd8ca71b",
+      "name": "Rapport"
+    },
+    {
+      "parameters": {
+        "url": "https://mata-lgzy.onrender.com/api/external/reconciliation",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ $items('Code0')[0].json.yest }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-api-key",
+              "value": "b326e72b67a9b508c88270b9954c5ca1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -320,
+        352
+      ],
+      "id": "03495435-523a-466d-9e31-2f045e06baf3",
+      "name": "Get Rec from matix"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "date",
+        "include": "selectedOtherFields",
+        "fieldsToInclude": "today",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        656
+      ],
+      "id": "e770c3ef-7cf3-4a7e-821f-e444b3638e89",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "url": "https://mata-lgzy.onrender.com/api/external/reconciliation",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ $json.date }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-api-key",
+              "value": "b326e72b67a9b508c88270b9954c5ca1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -96,
+        656
+      ],
+      "id": "74d7ef1d-3301-4e69-ae12-94573b71b6af",
+      "name": "Get Rec from matix2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Function node\n//\n// Agrégation des ventes théoriques des produits cibles par date & point de vente,\n// en lisant UNIQUEMENT les données du nœud \"Get Rec from matix2\".\n//\n// Règles spéciales :\n// - Exclure Abattage.\n// - Pour Linguere & Dahra : ne considérer que Poulet (autres produits forcés à 0).\n// - Ordre PV : O.Foire, Mbao, Keur Massar, Sacre Coeur, puis reste alphabétique.\n//\n// Auteur : adapté pour Saliou / MATA\n// Maj : 18-07-2025\n//----------------------------------------------------------------\n\n//////////////////// CONFIG ////////////////////\nconst SOURCE_NODE = \"Get Rec from matix2\";\nconst TARGET_PRODUCTS = [\"Boeuf\", \"Veau\", \"Agneau\", \"Poulet\", \"Yell\", \"Foie\"];\nconst EXCLUDED_POINTS = [\"Abattage\"];\nconst PV_ONLY_POULET = [\"Linguere\", \"Dahra\"];\nconst ORDER_FIRST = [\"O.Foire\", \"Mbao\", \"Keur Massar\", \"Sacre Coeur\"];\n///////////////////////////////////////////////\n\n\n// ---------- Utilitaires ----------\nfunction norm(str) {\n  if (typeof str !== 'string') return '';\n  return str\n    .normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')\n    .toLowerCase()\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nconst EXCLUDED_NORM = new Set(EXCLUDED_POINTS.map(norm));\nfunction isExcludedPointVente(pv) {\n  return EXCLUDED_NORM.has(norm(pv));\n}\n\nconst PV_ONLY_POULET_NORM = new Set(PV_ONLY_POULET.map(norm));\nfunction allowedProductsForPv(pv) {\n  return PV_ONLY_POULET_NORM.has(norm(pv)) ? [\"Poulet\"] : TARGET_PRODUCTS;\n}\n\n// dictionnaire norm -> canon\nconst canonicalMap = {};\nfor (const p of TARGET_PRODUCTS) canonicalMap[norm(p)] = p;\n\n// Test clé date DD-MM-YYYY\nconst DATE_RE = /^(\\d{2})-(\\d{2})-(\\d{4})$/;\n\nfunction parseDateKey(dk) {\n  const m = DATE_RE.exec(dk);\n  if (!m) return null;\n  const [ , dd, mm, yyyy ] = m;\n  return new Date(Number(yyyy), Number(mm) - 1, Number(dd));\n}\n\nfunction sortDateKeys(dateKeys) {\n  return [...dateKeys].sort((a, b) => {\n    const da = parseDateKey(a);\n    const db = parseDateKey(b);\n    if (!da && !db) return a.localeCompare(b);\n    if (!da) return 1;\n    if (!db) return -1;\n    return da - db;\n  });\n}\n\nfunction toNum(v) {\n  const n = Number(v);\n  return Number.isFinite(n) ? n : 0;\n}\n\n\n// ---------- Extraction produits cibles à partir d'un objet produit brut ----------\n/*\n * produitsObj structure attendue :\n * {\n *   \"Boeuf\": { ventesTheoriques: 123, ... },\n *   \"Tablette\": {...}, ...\n * }\n * Nous ne retenons que TARGET_PRODUCTS, en respectant la règle PV_ONLY_POULET.\n */\nfunction extractProductsForPv(produitsObj, pv) {\n  const allowed = allowedProductsForPv(pv);\n  const out = {};\n  // init 0 pour chaque produit autorisé\n  for (const p of allowed) out[p] = 0;\n\n  if (!produitsObj || typeof produitsObj !== 'object') return out;\n\n  for (const [lib, pdata] of Object.entries(produitsObj)) {\n    const canon = canonicalMap[norm(lib)];\n    if (!canon) continue;            // produit hors cible\n    if (!allowed.includes(canon)) continue; // filtré par règle PV_ONLY_POULET\n    const vt = Number(pdata?.ventesTheoriques);\n    if (Number.isFinite(vt)) out[canon] += vt;\n  }\n  return out;\n}\n\n\n// ---------- Fusion/agrégation principale ----------\n/*\n * Parcourt tous les items du nœud source, agrège vers :\n * grouped = { date: { pointVente: { prod: totalVT } } }\n */\nfunction collectFromSource() {\n  const srcItems = $items(SOURCE_NODE, 0, 0) || [];\n  const grouped = {};\n\n  for (const item of srcItems) {\n    const data = item.json?.data;\n    if (!data) continue;\n\n    const date = data.date ?? 'inconnue';\n\n    // le détail exploitable est sous data.details\n    const details = data.details ?? {};\n    if (!grouped[date]) grouped[date] = {};\n\n    for (const [pointVente, produitsObj] of Object.entries(details)) {\n      if (isExcludedPointVente(pointVente)) continue;\n\n      // obtenir (prod->val) pour ce PV\n      const prodVals = extractProductsForPv(produitsObj, pointVente);\n\n      // accumuler\n      if (!grouped[date][pointVente]) grouped[date][pointVente] = {};\n      for (const [prod, val] of Object.entries(prodVals)) {\n        grouped[date][pointVente][prod] =\n          (grouped[date][pointVente][prod] ?? 0) + toNum(val);\n      }\n    }\n  }\n\n  return grouped;\n}\n\n\n// ---------- Construire l'ordre des points de vente ----------\nfunction buildOrderedPvList(grouped) {\n  const set = new Set();\n  for (const d of Object.keys(grouped)) {\n    Object.keys(grouped[d] || {}).forEach(pv => set.add(pv));\n  }\n  const all = [...set];\n  // tri custom\n  return all.sort((a, b) => {\n    const na = norm(a);\n    const nb = norm(b);\n    const ia = ORDER_FIRST.findIndex(x => norm(x) === na);\n    const ib = ORDER_FIRST.findIndex(x => norm(x) === nb);\n    if (ia === -1 && ib === -1) return a.localeCompare(b);\n    if (ia === -1) return 1;\n    if (ib === -1) return -1;\n    return ia - ib;\n  });\n}\n\n\n// ---------- Programme principal ----------\nconst grouped = collectFromSource();\nconst dates = sortDateKeys(Object.keys(grouped));\nconst orderPointVente = buildOrderedPvList(grouped);\n\n// Option : garantir que tous les PV possèdent toutes les clés produits autorisées\n// (pour faciliter tableaux en aval)\nfor (const date of dates) {\n  for (const pv of Object.keys(grouped[date])) {\n    const allowed = allowedProductsForPv(pv);\n    for (const prod of allowed) {\n      if (grouped[date][pv][prod] == null) grouped[date][pv][prod] = 0;\n    }\n  }\n}\n\n// ----- Sortie -----\n// Un seul item structuré, avec méta-infos d'ordre\nreturn [{\n  json: {\n    dates,\n    orderPointVente,\n    data: grouped,\n    config: {\n      targetProducts: TARGET_PRODUCTS,\n      pvOnlyPoulet: PV_ONLY_POULET,\n      excludedPoints: EXCLUDED_POINTS,\n      orderFirst: ORDER_FIRST,\n    }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        768
+      ],
+      "id": "c1295ea2-7313-40f5-985d-5916e5fda0c4",
+      "name": "PastDateVenteTherique"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Function node\n//\n// Transforme un input agrégé (dates + orderPointVente + data)\n// en un objet {date:{pointVente:{Boeuf..}}} normalisé,\n// avec les 6 produits cibles forcés (0 si absent),\n// et en EXCLUANT \"Abattage\" (même si présent dans data).\n//\n// Sortie: [ { json: { \"DD-MM-YYYY\": { pv: {prod:val} ... }, ... } } ]\n//\n// Maj: 18-07-2025 (excl. Abattage)\n//----------------------------------------------------------------\n\n//////////////////// CONFIG ////////////////////\nconst TARGET_PRODUCTS = [\"Boeuf\", \"Veau\", \"Agneau\", \"Poulet\", \"Yell\", \"Foie\"];\n///////////////////////////////////////////////\n\n// ------------------------------------------------------------------\n// 1. Récup input unique\n// ------------------------------------------------------------------\nconst input = items[0]?.json;\nif (!input) {\n  return [{ json: { error: \"Input vide ou invalide.\" } }];\n}\n\nconst dates = Array.isArray(input.dates) ? input.dates : [];\n// On respecte l'ordre fourni; Abattage n'y figure pas => exclu.\nconst orderPointVente = Array.isArray(input.orderPointVente) ? input.orderPointVente : [];\nconst data = input.data || {};  // {date:{pv:{prod:val}}}\n\n// ------------------------------------------------------------------\n// 2. Normaliser map produits -> 6 produits cibles\n// ------------------------------------------------------------------\nfunction ensureAllProducts(prodMap) {\n  const out = {};\n  for (const p of TARGET_PRODUCTS) {\n    const v = prodMap?.[p];\n    const n = Number(v);\n    out[p] = Number.isFinite(n) ? n : 0;\n  }\n  return out;\n}\n\n// ------------------------------------------------------------------\n// 3. Construire objet final sans Abattage\n// ------------------------------------------------------------------\nconst finalObj = {};\n\nfor (const d of dates) {\n  const pvMapIn = data[d] || {};\n  const pvMapOut = {};\n\n  for (const pv of orderPointVente) {\n    const rawProdMap = pvMapIn[pv];\n    pvMapOut[pv] = ensureAllProducts(rawProdMap);\n  }\n\n  finalObj[d] = pvMapOut;\n}\n\n// ------------------------------------------------------------------\n// 4. Sortie\n// ------------------------------------------------------------------\nreturn [{ json: finalObj }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        1136
+      ],
+      "id": "64130990-e1ef-4412-a1b6-73f3e47c47bb",
+      "name": "FormattingPerDatePerPO"
+    },
+    {
+      "parameters": {
+        "jsCode": "/* ===============================================================\n   n8n Function node — Email \"Evolution VT\" (HTML + Text)\n   Entrée (items[0].json) : agrégat VT multi-dates par PV\n     {\n       \"01-09-2025\": { \"O.Foire\": {...}, \"Mbao\": {...}, ... },\n       \"02-09-2025\": { ... },\n       \"03-09-2025\": { ... }\n     }\n   - Produits VT: Boeuf, Veau, Agneau, Poulet, Yell, Foie\n   - Produits Stocks du soir: + Tablette\n   - PV exclus (Evolution VT): Abattage\n   - PV exclus (Stocks du soir): Abattage, Chambre froide\n   - Règle spéciale: à Linguere & Dahra, on n’évalue que \"Poulet\" pour la stagnation\n   Sortie: [{ json: { subject, html, text, dates, ... } }]\n   =============================================================== */\n\n/* =====================  CONFIG  ===================== */\nconst TARGET_PRODUCTS = [\"Boeuf\",\"Veau\",\"Agneau\",\"Poulet\",\"Yell\",\"Foie\"];\nconst ORDER_PV = [\"O.Foire\",\"Mbao\",\"Keur Massar\",\"Sacre Coeur\",\"Dahra\",\"Linguere\"];\nconst VARIATION_THRESHOLD = 0.05; // 5 %\nconst EXCLUDED_PV = new Set([\"Abattage\"]);                       // Evolution VT\nconst EXCLUDED_STOCKS_PV = new Set([\"Abattage\",\"Chambre froide\"]); // Stocks du soir\nconst LIMIT_TO_LAST_N_DATES = 3;\nconst SHOW_PCT_CHANGE = true;\n\n// --- Nom EXACT du nœud qui fournit { data:{ details:{...} } } ---\nconst GET_REC_NODE = 'Get Rec from matix2';\n\n// Produits affichés dans les tableaux \"Évolution VT\" par PV (masquer Agneau, Yell, Foie en Chambre froide)\nconst PV_EVOLUTION_PRODUCTS_OVERRIDE = {\n  \"Chambre froide\": [\"Boeuf\", \"Veau\", \"Poulet\"],\n};\n// Helper : liste de produits à afficher pour un PV donné\nfunction getProductsForPV(pv){\n  return PV_EVOLUTION_PRODUCTS_OVERRIDE[pv] || TARGET_PRODUCTS;\n}\n\n/* =====================  Styles  ===================== */\nconst C = {\n  bg:\"#F8FAFC\", card:\"#FFFFFF\", ink:\"#0F172A\", sub:\"#475569\",\n  border:\"#E5E7EB\", borderLight:\"#F1F5F9\",\n  thBg:\"#F8FAFC\", thTxt:\"#111827\", tdTxt:\"#111827\",\n  chipInfoBg:\"#EEF2FF\", chipInfoTxt:\"#1E40AF\", chipInfoBr:\"#C7D2FE\",\n  chipOkBg:\"#E8F5E9\", chipOkTxt:\"#1B5E20\", chipOkBr:\"#A5D6A7\",\n  chipWarnBg:\"#FFF8E1\", chipWarnTxt:\"#8D6E00\", chipWarnBr:\"#FFE082\",\n  chipErrBg:\"#FFEBEE\", chipErrTxt:\"#B71C1C\", chipErrBr:\"#EF9A9A\",\n  stagnBg:\"#FFF4F4\", stagnTxt:\"#B71C1C\",\n  zeroBg:\"#FFFBEA\", zeroTxt:\"#8D6E00\",\n};\n\n/* =====================  Utils  ===================== */\nconst DATE_RE = /^(\\d{2})-(\\d{2})-(\\d{4})$/;\nconst esc = s => String(s ?? \"\").replace(/[&<>\"']/g, c => (\n  { \"&\":\"&amp;\", \"<\":\"&lt;\", \">\":\"&gt;\", '\"':\"&quot;\", \"'\":\"&#39;\" }[c]\n));\nfunction parseDateKey(dk){ const m = DATE_RE.exec(dk); if (!m) return null; const [,dd,mm,yyyy]=m; return new Date(+yyyy,+mm-1,+dd); }\nfunction sortDateKeys(keys){\n  return [...keys].sort((a,b)=>{\n    const da=parseDateKey(a), db=parseDateKey(b);\n    if (!da && !db) return a.localeCompare(b);\n    if (!da) return 1; if (!db) return -1; return da-db;\n  });\n}\nconst toNum = v => Number.isFinite(Number(v)) ? Number(v) : 0;\nconst pctFmt = (v,d=1)=> (v*100).toFixed(d)+\"%\";\nfunction numFmtFlexible(v){\n  const n = Number(v); if (!Number.isFinite(n)) return \"0\";\n  const isInt = Math.abs(n - Math.round(n)) < 1e-9;\n  return n.toLocaleString('fr-FR',{ minimumFractionDigits: isInt?0:2, maximumFractionDigits: isInt?0:2 });\n}\nfunction chip(text,kind='info'){\n  const map = {\n    info:{bg:C.chipInfoBg,br:C.chipInfoBr,txt:C.chipInfoTxt},\n    ok:{bg:C.chipOkBg,br:C.chipOkBr,txt:C.chipOkTxt},\n    warn:{bg:C.chipWarnBg,br:C.chipWarnBr,txt:C.chipWarnTxt},\n    danger:{bg:C.chipErrBg,br:C.chipErrBr,txt:C.chipErrTxt},\n  }[kind] || {bg:\"#EEE\",br:\"#DDD\",txt:\"#333\"};\n  return `<span style=\"display:inline-block;padding:2px 8px;border:1px solid ${map.br};border-radius:999px;background:${map.bg};color:${map.txt};font-size:12px;line-height:18px;\">${esc(text)}</span>`;\n}\nfunction spanAmount(n){\n  const v = toNum(n);\n  const color = v < 0 ? \"#C0392B\" : (v > 0 ? \"#1E8449\" : C.tdTxt);\n  const fw = v !== 0 ? \"600\" : \"500\";\n  return `<span style=\"color:${color};font-weight:${fw}\">${numFmtFlexible(v)}</span>`;\n}\nfunction computeMetrics(vals, checkStagnation=true){\n  const first = vals[0] ?? 0, last = vals.at(-1) ?? 0;\n  let min=Infinity,max=-Infinity; for (const v of vals){ if (v<min) min=v; if (v>max) max=v; }\n  if (min===Infinity) min=0; if (max===-Infinity) max=0;\n  const range = max-min; const pctRange = max!==0 ? Math.abs(range)/Math.abs(max) : 0;\n  let pctChange; if (first===0 && last===0) pctChange=0; else if (first===0) pctChange = max!==0 ? (last-first)/Math.abs(max) : 0;\n  else pctChange = (last-first)/Math.abs(first);\n  const stagnant = checkStagnation ? (pctRange < VARIATION_THRESHOLD) : false;\n  return {first,last,min,max,pctRange,pctChange,stagnant};\n}\n\n/* =====================  1) Lire input principal (agrégat VT)  ===================== */\nconst rawObj = items[0]?.json;\nif (!rawObj || typeof rawObj !== 'object') {\n  return [{ json: { error:\"Input vide ou invalide pour Evolution VT (aggregated).\" } }];\n}\n\n/* =====================  2) Dates cibles  ===================== */\nconst allDateKeys = sortDateKeys(Object.keys(rawObj));\nconst dates = LIMIT_TO_LAST_N_DATES ? allDateKeys.slice(-LIMIT_TO_LAST_N_DATES) : allDateKeys;\nconst periodStr = dates.length ? `${dates[0]} → ${dates.at(-1)}` : \"—\";\n\n/* =====================  3) PV ordonnés  ===================== */\nconst pvSet = new Set(ORDER_PV);\nfor (const d of dates){\n  const pvMap = rawObj[d] || {};\n  Object.keys(pvMap).forEach(pv => { if (!EXCLUDED_PV.has(pv)) pvSet.add(pv); });\n}\nconst pvOrdered = ORDER_PV.concat([...pvSet].filter(pv => !ORDER_PV.includes(pv)));\n\n/* =====================  4) Séries & métriques par PV (Evolution VT)  ===================== */\nconst pvData = {};\nfor (const pv of pvOrdered){\n  if (EXCLUDED_PV.has(pv)) continue;\n  const series = [];\n  for (const d of dates){\n    const pvMap = rawObj[d]?.[pv] || {};\n    const row = { date:d };\n    for (const prod of TARGET_PRODUCTS) row[prod] = toNum(pvMap[prod]);\n    series.push(row);\n  }\n  const metrics = {};\n  for (const prod of TARGET_PRODUCTS){\n    let check = true;\n    if ((pv===\"Linguere\" || pv===\"Dahra\") && prod!==\"Poulet\") check = false;\n    metrics[prod] = computeMetrics(series.map(r=>r[prod]), check);\n  }\n  pvData[pv] = {pointVente:pv, series, metrics};\n}\n\n/* =====================  5) Lecture \"Get Rec\" (stocks du soir)  ===================== */\nfunction _unwrapGetRecPayload(x){\n  if (!x) return null;\n  if (Array.isArray(x)){\n    const a = x.find(e => e?.data?.details && typeof e.data.details === 'object'); if (a) return a.data;\n    const b = x.find(e => e?.details && typeof e.details === 'object'); if (b) return b;\n    return null;\n  }\n  if (x?.data?.details && typeof x.data.details === 'object') return x.data;\n  if (x?.details && typeof x.details === 'object') return x;\n  return null;\n}\nfunction _detectGetRecData(){\n  try {\n    const arr = $items(GET_REC_NODE, 0, -1);\n    if (Array.isArray(arr) && arr.length){\n      const payloads = arr.map(it => it?.json).filter(Boolean);\n      const unwrapped = _unwrapGetRecPayload(payloads);\n      if (unwrapped) return unwrapped;\n    }\n  } catch(e){}\n  const j0 = items?.[0]?.json;\n  const fromCurrent = _unwrapGetRecPayload(j0);\n  if (fromCurrent) return fromCurrent;\n  return null;\n}\nconst __getRecData = _detectGetRecData();\n\n/* =====================  6) Tables HTML ===================== */\nfunction buildTableForPV(pvRec){\n  const {pointVente, series, metrics} = pvRec;\n  const tableBase = \"width:100%;border-collapse:collapse;margin:8px 0;\";\n  const thBase = `text-align:left;padding:8px;border-bottom:1px solid ${C.border};background:${C.thBg};font-weight:600;font-size:14px;color:${C.thTxt};`;\n  const tdBase = `padding:8px;border-bottom:1px solid ${C.borderLight};font-size:14px;color:${C.tdTxt};`;\n\n  let html = `\n  <div style=\"margin:12px 0 4px 0;font-weight:800;color:${C.ink};font-size:16px;\">${esc(pointVente)}</div>\n  <table style=\"${tableBase}\">\n    <thead><tr>\n      <th style=\"${thBase};width:18%\">Produit</th>`;\n  for (const d of series.map(r=>r.date)) html += `<th style=\"${thBase};width:${Math.max(12, Math.floor(82/(series.length + (SHOW_PCT_CHANGE?1:0))))}%\">${esc(d)}</th>`;\n  if (SHOW_PCT_CHANGE) html += `<th style=\"${thBase};text-align:right;\">Δ % (1ère→dernière)</th>`;\n  html += `</tr></thead><tbody>`;\n\n  const prodsToShow = getProductsForPV(pointVente);\n  for (const prod of prodsToShow){\n    const m = metrics[prod];\n    const rowStyle = m?.stagnant ? `background:${C.stagnBg};color:${C.stagnTxt};font-weight:600;` : \"\";\n    html += `<tr style=\"${rowStyle}\"><td style=\"${tdBase}\">${esc(prod)}${m?.stagnant?\" ⚠️\":\"\"}</td>`;\n    for (const r of series) html += `<td style=\"${tdBase};text-align:right;\">${spanAmount(r[prod])}</td>`;\n    if (SHOW_PCT_CHANGE) html += `<td style=\"${tdBase};text-align:right;\">${esc(pctFmt(m?.pctChange ?? 0))}</td>`;\n    html += `</tr>`;\n  }\n  html += `</tbody></table>`;\n  return html;\n}\n\n/* ---- Stocks du soir (HTML + TEXT) avec surlignage des 0 & exclusion PV ---- */\nfunction buildStocksSoirFromGetRecHTML(details){\n  const productKeys = ['Boeuf','Veau','Poulet','Tablette','Yell','Foie'];\n  const pvKeys = Object.keys(details || {}).filter(pv => !EXCLUDED_STOCKS_PV.has(pv));\n  const ordered = (ORDER_PV || []).filter(pv => pvKeys.includes(pv)).concat(pvKeys.filter(pv => !(ORDER_PV||[]).includes(pv)));\n\n  const tableBase = `width:100%;border-collapse:collapse;margin:8px 0;`;\n  const thBase = `text-align:left;padding:8px;border-bottom:1px solid ${C.border};background:${C.thBg};font-weight:600;font-size:14px;color:${C.thTxt};`;\n  const tdBase = `padding:8px;border-bottom:1px solid ${C.borderLight};font-size:14px;color:${C.tdTxt};text-align:right;`;\n  const prodColWidth = Math.max(10, Math.floor(72 / productKeys.length));\n\n  const renderCell = (n) => {\n    const v = toNum(n);\n    if (v === 0) {\n      return `<td style=\"${tdBase};background:${C.zeroBg};color:${C.zeroTxt};font-weight:700;\">${numFmtFlexible(v)}</td>`;\n    }\n    return `<td style=\"${tdBase}\">${numFmtFlexible(v)}</td>`;\n  };\n\n  let h = `<div style=\"margin:16px 0 6px 0;font-weight:800;color:${C.ink};font-size:16px;\">Stocks du soir (nombres) — source : Get Rec</div>`;\n  h += `<table style=\"${tableBase}\"><thead><tr>`;\n  h += `<th style=\"${thBase};width:28%;text-align:left\">Point de vente</th>`;\n  for (const prod of productKeys) h += `<th style=\"${thBase};width:${prodColWidth}%;text-align:right\">${esc(prod)}</th>`;\n  h += `</tr></thead><tbody>`;\n\n  for (const pv of ordered){\n    const node = (details || {})[pv] || {};\n    const getNum = (prod)=> toNum(node?.[prod]?.stockSoirNombre);\n    const r = { pv, Boeuf:getNum('Boeuf'), Veau:getNum('Veau'), Poulet:getNum('Poulet'), Tablette:getNum('Tablette'), Yell:getNum('Yell'), Foie:getNum('Foie') };\n    h += `<tr><td style=\"${tdBase};text-align:left\">${esc(r.pv)}</td>`\n       + renderCell(r.Boeuf) + renderCell(r.Veau) + renderCell(r.Poulet)\n       + renderCell(r.Tablette) + renderCell(r.Yell) + renderCell(r.Foie)\n       + `</tr>`;\n  }\n  h += `</tbody></table>`;\n  return h;\n}\nfunction buildStocksSoirFromGetRecTEXT(details){\n  const productKeys = ['Boeuf','Veau','Poulet','Tablette','Yell','Foie'];\n  const pvKeys = Object.keys(details || {}).filter(pv => !EXCLUDED_STOCKS_PV.has(pv));\n  const ordered = (ORDER_PV || []).filter(pv => pvKeys.includes(pv)).concat(pvKeys.filter(pv => !(ORDER_PV||[]).includes(pv)));\n  const lines = [`Stocks du soir (nombres) — source: Get Rec`];\n  for (const pv of ordered){\n    const node = (details || {})[pv] || {};\n    const n = p => toNum(node?.[p]?.stockSoirNombre);\n    lines.push(`- ${pv}: Boeuf=${n('Boeuf')} | Veau=${n('Veau')} | Poulet=${n('Poulet')} | Tablette=${n('Tablette')} | Yell=${n('Yell')} | Foie=${n('Foie')}`);\n  }\n  return lines.join('\\n');\n}\n\n/* =====================  7) Fusion — Produits non vendus ou stagnants (VT < 5%) ===================== */\nconst nonVendusOuStagnantsByPV = {};\nfor (const pv of pvOrdered){\n  if (EXCLUDED_PV.has(pv)) continue; // même périmètre que tableaux VT\n  const rec = pvData[pv]; if (!rec) continue;\n\n  const prods = getProductsForPV(pv);\n  const arr = [];\n  for (const prod of prods){\n    // règle Linguere/Dahra : n’évaluer que Poulet\n    if ((pv===\"Linguere\" || pv===\"Dahra\") && prod!==\"Poulet\") continue;\n    const m = rec.metrics[prod];\n    if (m.stagnant) arr.push(prod);\n  }\n  if (arr.length) nonVendusOuStagnantsByPV[pv] = arr;\n}\n\n/* =====================  8) Résumés HTML/TEXTE & Détails ===================== */\nfunction buildSummariesHTML(){\n  let html = `<div style=\"margin:18px 0 8px 0;font-size:16px;font-weight:800;color:${C.ink};\">\n    Produits non vendus ou stagnants (VT &lt; ${pctFmt(VARIATION_THRESHOLD)})\n  </div>`;\n  let any = false;\n  html += `<ul style=\"margin:6px 0 10px 18px;padding:0;\">`;\n  for (const pv of pvOrdered){\n    if (EXCLUDED_PV.has(pv)) continue;\n    const arr = nonVendusOuStagnantsByPV[pv] || [];\n    if (arr.length){\n      any = true;\n      html += `<li style=\"margin:4px 0;\">${chip(pv,'warn')} &nbsp; ${esc(arr.join(\", \"))}</li>`;\n    }\n  }\n  if (!any) html += `<li style=\"margin:4px 0;\">${chip(\"Aucun produit non vendu/stagnant\",\"ok\")}</li>`;\n  html += `</ul>`;\n  return html;\n}\nfunction buildSummariesText(){\n  const lines = [`Produits non vendus ou stagnants (VT < ${pctFmt(VARIATION_THRESHOLD)})`];\n  let any = false;\n  for (const pv of pvOrdered){\n    if (EXCLUDED_PV.has(pv)) continue;\n    const arr = nonVendusOuStagnantsByPV[pv] || [];\n    if (arr.length){ any = true; lines.push(`- ${pv}: ${arr.join(\", \")}`); }\n  }\n  if (!any) lines.push(`- Aucun produit non vendu/stagnant`);\n  return lines.join(\"\\n\");\n}\nfunction buildTextDetails(){\n  const lines = [];\n  for (const pv of pvOrdered){\n    if (EXCLUDED_PV.has(pv)) continue;\n    const rec = pvData[pv]; if (!rec) continue;\n    lines.push(`=== ${pv} ===`);\n    const prodsToShow = getProductsForPV(pv);\n    for (const prod of prodsToShow){\n      const m = rec.metrics[prod];\n      const vals = rec.series.map(r=>numFmtFlexible(r[prod])).join(\" | \");\n      lines.push(`${prod}${m.stagnant?\" ⚠️\":\"\"}: ${vals} || Δ% ${pctFmt(m.pctChange)}`);\n    }\n    lines.push(\"\");\n  }\n  return lines.join(\"\\n\");\n}\n\n/* =====================  9) Générer HTML global  ===================== */\n(function(){\n  const container = `margin:0;padding:12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;color:${C.ink};background:${C.bg};`;\n  const wrap = \"max-width:960px;margin:auto;\";\n  const card = `background:${C.card};border:1px solid ${C.border};border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:12px;`;\n\n  const parts = [];\n  parts.push(`<div style=\"${container}\"><div style=\"${wrap}\">`);\n\n  // Carte 1 — Stocks du soir\n  const hasStocks = __getRecData?.details && typeof __getRecData.details === 'object';\n  parts.push(`<div style=\"${card}\">` + (\n    hasStocks\n      ? buildStocksSoirFromGetRecHTML(__getRecData.details)\n      : `<div style=\"font-size:12px;color:${C.sub};\">${chip('Source Get Rec introuvable ou vide','warn')} <span style=\"margin-left:6px\">Vérifiez le nœud <em>${esc(GET_REC_NODE)}</em> et la présence de <code>data.details</code>.</span></div>`\n  ) + `</div>`);\n\n  // Carte 2 — Evolution VT + résumé fusionné\n  parts.push(`\n    <div style=\"${card}\">\n      <div style=\"display:flex;align-items:center;gap:8px;margin-bottom:4px;\">\n        <div style=\"font-size:18px;font-weight:800;color:${C.ink};\">Évolution des Ventes Théoriques</div>\n        ${chip(\"VT\",\"info\")}\n      </div>\n      <div style=\"font-size:13px;color:${C.sub};margin-bottom:10px;\">\n        Période : <strong>${esc(periodStr)}</strong> &nbsp;•&nbsp; Seuil stagnation : <strong>&lt; ${pctFmt(VARIATION_THRESHOLD)}</strong>\n      </div>\n      ${buildSummariesHTML()}\n  `);\n  for (const pv of pvOrdered){ \n    if (!EXCLUDED_PV.has(pv)) { \n      const rec = pvData[pv]; \n      if (rec) parts.push(buildTableForPV(rec)); \n    } \n  }\n\n  // Légende\n  parts.push(`\n      <div style=\"margin-top:10px;font-size:12px;color:${C.sub};\">\n        <div style=\"margin:6px 0 2px 0;font-weight:700;color:${C.ink};\">Légende</div>\n        <div>${chip(\"⚠️ Stagnant\",\"warn\")} : Amplitude relative &lt; ${pctFmt(VARIATION_THRESHOLD)} sur la période (à Linguere &amp; Dahra : seul <strong>Poulet</strong> évalué).</div>\n        <div>Dans « Stocks du soir », les valeurs <strong>0</strong> sont surlignées et les PV <em>Abattage</em> & <em>Chambre froide</em> sont exclus.</div>\n      </div>\n    </div>\n  `);\n\n  // Pied\n  parts.push(`\n    <div style=\"text-align:center;color:${C.sub};font-size:12px;margin-top:10px;\">\n      Généré automatiquement — DSI MATA • ${new Date().toISOString().slice(0,16).replace('T',' ')} UTC\n    </div>\n  `);\n\n  parts.push(`</div></div>`);\n  global.htmlReport = parts.join(\"\\n\");\n})();\n\n/* ===================== 10) Texte ===================== */\nconst textParts = [];\ntextParts.push(`Evolution des Ventes Théoriques`);\ntextParts.push(`Période: ${periodStr} | Seuil stagnation: < ${pctFmt(VARIATION_THRESHOLD)}`);\n\nconst stocksText = (__getRecData?.details) ? buildStocksSoirFromGetRecTEXT(__getRecData.details)\n  : `Source Get Rec introuvable ou vide (nœud: ${GET_REC_NODE}).`;\ntextParts.push(stocksText, \"\", buildSummariesText(), \"\", buildTextDetails());\n\n/* ===================== 11) Sortie ===================== */\nreturn [{\n  json: {\n    subject: `📈 Evolution VT — ${periodStr}`,\n    html: global.htmlReport,\n    text: textParts.join(\"\\n\"),\n    dates,\n    threshold: VARIATION_THRESHOLD,\n    excludedPoints: [...EXCLUDED_PV],\n    excludedStocksPoints: [...EXCLUDED_STOCKS_PV],\n    orderPointVente: pvOrdered,\n    reportDate: new Date().toISOString().slice(0,10),\n    nonVendusOuStagnantsByPV\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        576,
+        1136
+      ],
+      "id": "2dc7197b-3ed5-44e9-8dd2-26ef753022ad",
+      "name": "FormatBeforeMail"
+    },
+    {
+      "parameters": {
+        "sendTo": "doucoure.saliou@gmail.com",
+        "subject": "=MATA REPORT 1: Ventes et Stock {{ $item(0).$node[\"Rapport\"].json.subject }}",
+        "message": "=<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;\n            border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;\n            margin:20px 0;\">\n  1. VENTES\n</div>\n\n{{ $('Rapport').item.json.html }}\n\n\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;\n            border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;\n            margin:20px 0;\">\n 2. ESTIMATION\n</div>\n\n\n\n{{ $('Format estimation').item.json.html}}\n\n\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;\n            border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;\n            margin:20px 0;\">\n 3. VOLAILLE\n</div>\n\n\n\n{{ $('Format Volaille').item.json.html }}\n\n\n\n\n\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;\n            border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;\n            margin:20px 0;\">\n 4. PERFORMANCE ACHAT BOVIN\n</div>\n\n{{ $('Perf Achat Format').item.json.html }}\n\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;\n            border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;\n            margin:20px 0;\">\n\n 5. PRIX BOEUF\n</div>\n\n\n{{ $('Boeuf prix').item.json.html }}\n\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;\n            border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;\n            margin:20px 0;\">\n 6. DEPENSES DU JOUR\n</div>\n\n\n{{ $('Format Depenses').item.json.html}}\n\n\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;\n            border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;\n            margin:20px 0;\">\n\n 7. CHAMBRE FROIDE\n</div>\n\n\n{{ $('Get Chambre froide').item.json.text }}\n\n\n\n\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;\n            border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;\n            margin:20px 0;\">\n 8. ECART STOCK VS VENTES DU MOIS (DEBUT DE MOIS - {{ $('mlc').item.json.date }})\n</div>\n\n{{ $('llm formatting').item.json.output_html }}\n\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;\n            border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;\n            margin:20px 0;\">\n\n9. Agent\n</div>\n\n\n\nPour plus de details, lancer un rapport avec le lien c-dessous.\nExemple: Lancer un rapport au dd-mm-yyyy\n\nhttps://app.relevanceai.com/agents/d7b62b/454efacc47da-463b-877a-66e43c7b454a/ebb0f674-400d-4843-b6b9-b9c327246419/embed-chat?hide_tool_steps=false&hide_file_uploads=false&hide_conversation_list=false&bubble_style=agent&primary_color=%23685FFF&bubble_icon=pd%2Fchat&input_placeholder_text=Type+your+message...&hide_logo=false\n",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1440,
+        1136
+      ],
+      "id": "e76a5913-663d-4262-ac18-289948c97c9c",
+      "name": "Send a message",
+      "webhookId": "8af1c26f-6c03-4619-bcd5-1308d6aeb9a8",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "HrA0dfl3fOvncpm8",
+          "name": "Gmail account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://mata-depenses-management.onrender.com/external/api/creance",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ $items('Code0')[0].json.yest.split(/[\\/.-]/).reverse().join('-') }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-api-key",
+              "value": "4f8d9a2b6c7e8f1a3b5c9d0e2f4g6h7i"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -768,
+        352
+      ],
+      "id": "062ae14b-5e27-42b8-953d-67dc423a29f1",
+      "name": "Get Creance MataBanq"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mapping explicite portfolio_name -> Point de Vente\nconst MAP_PDV = {\n  CREANCE_DAHRA: 'Dahra',\n  CREANCE_KEUR_MASSAR: 'Keur Massar',\n  CREANCE_LINGUERE: 'Linguere',\n  CREANCE_OUEST_FOIRE: 'O.Foire',\n  CREANCE_MBAO: 'Mbao',\n  CREANCE_SACRE_COEUR: 'Centre de Découpe Dakar',\n  CREANCE_CDD: 'Centre de Découpe Dakar',          // <-- ajouté\n  CREANCE_CDB: 'Centre de Découpe Banlieue',       // <-- ajouté\n  CREANCE_ABATS: 'Abattage',\n};\n\n// Utilitaire : extrait une date (YYYY-MM-DD) depuis différents champs possibles\nfunction parseDateFrom(obj) {\n  if (!obj || typeof obj !== 'object') return null;\n  const candidates = [obj.date, obj.timestamp, obj.asOf, obj.as_of];\n  for (const c of candidates) {\n    if (typeof c === 'string' && c.trim()) {\n      const d = new Date(c);\n      if (!Number.isNaN(d.getTime())) {\n        return d.toISOString().slice(0, 10); // YYYY-MM-DD\n      }\n    }\n  }\n  return null;\n}\n\n// Si une date existe au niveau du flux (premier item), on la mémorise comme valeur par défaut\nconst flowDate = parseDateFrom(items?.[0]?.json ?? {});\n\n// Extraction souple des portefeuilles selon différentes structures d'entrée\nfunction extractPortfolios(inputItems) {\n  const out = [];\n  for (const it of inputItems) {\n    const j = it.json ?? {};\n\n    if (j.summary && Array.isArray(j.summary.portfolios)) out.push(...j.summary.portfolios);\n    if (Array.isArray(j.portfolios)) out.push(...j.portfolios);\n    if (Array.isArray(j)) {\n      for (const k of j) if (k && typeof k === 'object' && k.portfolio_name) out.push(k);\n    }\n    if (j.portfolio_name) out.push(j);\n  }\n  return out;\n}\n\nconst portfolios = extractPortfolios(items);\nconst selectedDate = $input.first().json.summary?.date_selected ?? flowDate ?? null;\n\n// Agrégation par PV : plusieurs portefeuilles peuvent pointer sur le même PV\n// (ex: CREANCE_SACRE_COEUR et CREANCE_CDD -> Centre de Découpe Dakar)\nconst aggByPv = new Map();\n\nfor (const p of portfolios) {\n  const pdv = MAP_PDV[p.portfolio_name];\n  if (!pdv) continue; // ignorer les non-mappés\n\n  // difference depuis le JSON, ou fallback: current_balance - previous_balance\n  let diff = p.difference;\n  if (diff === undefined || diff === null) {\n    const cb = p.current_balance;\n    const pb = p.previous_balance;\n    diff = (typeof cb === 'number' && typeof pb === 'number') ? (cb - pb) : 0;\n  }\n\n  // Cumul par PV\n  const prev = aggByPv.get(pdv) || { diff: 0, sources: [] };\n  prev.diff += Number(diff) || 0;\n  prev.sources.push(p.portfolio_name);\n  aggByPv.set(pdv, prev);\n}\n\n// Construction de la sortie : un item par PV, avec la somme des diffs\nconst results = [];\nfor (const [pdv, info] of aggByPv) {\n  results.push({\n    json: {\n      pointVente: pdv,\n      differenceCreance: info.diff,\n      date: selectedDate,\n      // Liste des portefeuilles agrégés (utile pour audit/debug)\n      sourcePortfolios: info.sources,\n    },\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -576,
+        352
+      ],
+      "id": "e18fb289-06cf-4562-aaf5-1efe5752af96",
+      "name": "Code1",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Function node — Webhook AS-OF-TODAY\n// Comportement :\n//  - par défaut, le rapport est tiré pour la date du jour (today)\n//  - on peut surcharger via le webhook : ?date=DD-MM-YYYY ou ?date=YYYY-MM-DD\n//  - on garde les noms de champs (yest, today, date.date-N) pour ne RIEN\n//    casser dans les nodes en aval (Get Rec from matix, Split Out, etc.)\n\nfunction fmt(d) {\n  const dd = String(d.getDate()).padStart(2, '0');\n  const mm = String(d.getMonth() + 1).padStart(2, '0');\n  const yyyy = d.getFullYear();\n  return `${dd}-${mm}-${yyyy}`;\n}\n\nfunction parseDateInput(s) {\n  if (!s) return null;\n  const t = String(s).trim();\n  let m;\n  if ((m = t.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/)))   return new Date(+m[1], +m[2]-1, +m[3]);\n  if ((m = t.match(/^(\\d{2})-(\\d{2})-(\\d{4})$/)))   return new Date(+m[3], +m[2]-1, +m[1]);\n  if ((m = t.match(/^(\\d{2})\\/(\\d{2})\\/(\\d{4})$/))) return new Date(+m[3], +m[2]-1, +m[1]);\n  const d = new Date(t);\n  return isNaN(d) ? null : d;\n}\n\n// Tente de récupérer une date demandée via le webhook\nfunction getRequestedDate() {\n  try {\n    const wh = $('Webhook').first()?.json || {};\n    const candidates = [\n      wh?.query?.date,\n      wh?.body?.date,\n      wh?.params?.date,\n      wh?.headers && wh.headers['x-report-date']\n    ].filter(Boolean);\n    for (const c of candidates) {\n      const d = parseDateInput(c);\n      if (d) return d;\n    }\n  } catch (_) { /* webhook non présent */ }\n  return null;\n}\n\nconst requested = getRequestedDate();\nconst target = requested || new Date();\n\n// Ancrage à minuit local\nconst start = new Date(target.getFullYear(), target.getMonth(), target.getDate());\n\n// Date principale du rapport = TARGET\n// On garde le nom 'yest' pour conserver la compat avec les nodes en aval\n// (Get Rec from matix utilise $items('Code0')[0].json.yest comme date du rapport)\nconst targetStr = fmt(start);\n\n// Pour les multi-dates en aval (Get Rec from matix2 via Split Out) :\n//   date-0 = TARGET\n//   date-1 = TARGET-1 (hors dimanche)\n//   date-2 = TARGET-2 (hors dimanche)\n//   date-30 = TARGET-30 (calendaire)\nconst arr = [targetStr];\nconst c = new Date(start);\nwhile (arr.length < 3) {\n  c.setDate(c.getDate() - 1);\n  if (c.getDay() !== 0) arr.push(fmt(c));\n}\n\nconst minus30 = new Date(start);\nminus30.setDate(minus30.getDate() - 30);\n\nconst datesObj = {\n  \"date-0\": arr[0],\n  \"date-1\": arr[1],\n  \"date-2\": arr[2],\n  \"date-30\": fmt(minus30),\n};\n\nconst payload = {\n  today: targetStr,\n  yest: targetStr,           // = TARGET (today par défaut). Compat aval.\n  date: datesObj,\n  targetDate: targetStr,\n  source: requested ? 'webhook-param' : 'today-default',\n  message: `Lancer le rapport AS-OF ${targetStr} (mode webhook)`\n};\n\nif (items.length === 0) return [{ json: payload }];\nreturn items.map(item => {\n  Object.assign(item.json, payload);\n  return item;\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        656
+      ],
+      "id": "853e492b-314b-453c-b9a0-ceb367e45efe",
+      "name": "Code0",
+      "alwaysOutputData": true,
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "url": "https://mata-lgzy.onrender.com/api/external/gestionStock",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "startDate",
+              "value": "={{ $items(\"Code0\")[0].json.date[\"date-30\"].split(\"-\").reverse().join(\"-\") }}"
+            },
+            {
+              "name": "endDate",
+              "value": "={{ $items('Code0')[0].json.yest.split(\"-\").reverse().join(\"-\") }}"
+            },
+            {
+              "name": "produit",
+              "value": "Poulet,Tablette"
+            },
+            {
+              "name": "date",
+              "value": "={{ $items('Code0')[0].json.yest.split(\"-\").reverse().join(\"-\") }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "b326e72b67a9b508c88270b9954c5ca1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -96,
+        352
+      ],
+      "id": "4b53840c-3d04-4c35-ac4a-684da6c38863",
+      "name": "Get stock Volaille"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node — Run Once for All Items\n// Entrée: items[0].json contient { period: ..., target: ... }\n//        Chaque point de vente peut avoir details[] avec Produit = \"Poulet\" | \"Tablette\"\n// Sortie: [{ json: { subject, html, text, meta..., sections... } }]\n\n// ======================= Helpers / Config =======================\nconst PRODUCTS = [\"Poulet\", \"Tablette\"];              // familles gérées\nconst REGION_SET = new Set([\"Linguere\", \"Dahra\"]);    // => \"Région\"\nconst grp = (pdv) => REGION_SET.has(String(pdv).trim()) ? \"Region\" : \"Dakar\";\nconst n2 = new Intl.NumberFormat(\"fr-FR\",{ minimumFractionDigits:2, maximumFractionDigits:2 });\nconst n0 = new Intl.NumberFormat(\"fr-FR\");\n\n// ▶ Interrupteur pour masquer/afficher la section \"Moyennes\" dans le HTML\nconst SHOW_AVERAGES_HTML = false;\n\nconst COLORS = {\n  bg:\"#F8FAFC\", card:\"#FFFFFF\", ink:\"#0F172A\", sub:\"#475569\",\n  border:\"#E5E7EB\", borderLight:\"#F1F5F9\", thBg:\"#F8FAFC\", thTxt:\"#111827\", tdTxt:\"#111827\",\n  okBg:\"#E8F5E9\", okTxt:\"#1B5E20\", okBr:\"#A5D6A7\",\n  infoBg:\"#EEF2FF\", infoTxt:\"#1E40AF\", infoBr:\"#C7D2FE\",\n  warnBg:\"#FFF8E1\", warnTxt:\"#8D6E00\", warnBr:\"#FFE082\",\n  errBg:\"#FFEBEE\", errTxt:\"#B71C1C\", errBr:\"#EF9A9A\",\n};\n\nfunction esc(s){\n  return String(s ?? \"\").replace(/[&<>\"']/g, c => (\n    { \"&\":\"&amp;\",\"<\":\"&lt;\",\">\":\"&gt;\",'\"':\"&quot;\",\"'\":\"&#39;\" }[c]\n  ));\n}\n\nfunction pickNum(o, keys=[]){\n  for (const k of keys) {\n    const v = k.split(\".\").reduce((a,c)=> (a && a[c] != null) ? a[c] : undefined, o);\n    if (v != null && v !== \"\" && !isNaN(Number(v))) return Number(v);\n  }\n  return 0;\n}\n\n// Lecture sûre d’une valeur depuis details[] filtrée par produit\nfunction pickFromDetails(row, produit, fieldCandidates){\n  if (!Array.isArray(row?.details)) return 0;\n  let sum = 0;\n  for (const d of row.details) {\n    if (String(d?.Produit || d?.produit || d?.Product).trim() !== produit) continue;\n    for (const key of fieldCandidates) {\n      const v = key.split(\".\").reduce((a,c)=> (a && a[c] != null) ? a[c] : undefined, d);\n      if (v != null && v !== \"\" && !isNaN(Number(v))) { sum += Number(v); break; }\n    }\n  }\n  return sum;\n}\n\n// Normalisation dates (JJ-MM-AAAA / AAAA-MM-JJ / JJ/MM/AAAA)\nfunction normalizeDateStr(s){\n  if (!s) return \"\";\n  if (typeof s !== \"string\") {\n    const d = new Date(s); return isNaN(d) ? \"\" : d.toISOString().slice(0,10);\n  }\n  const t = s.trim();\n  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(t)) return t;\n  if (/^\\d{2}-\\d{2}-\\d{4}$/.test(t)) { const [jj,mm,aaaa]=t.split(\"-\"); return `${aaaa}-${mm}-${jj}`; }\n  if (/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(t)) { const [jj,mm,aaaa]=t.split(\"/\"); return `${aaaa}-${mm}-${jj}`; }\n  const d = new Date(t); return isNaN(d) ? t : d.toISOString().slice(0,10);\n}\n\n// Cherche un tableau \"pointsDeVente\" (robuste)\nfunction readBlock(block){\n  if (!block) return { meta:{}, rows:[] };\n  if (Array.isArray(block)) {\n    if (block.length && Array.isArray(block[0]?.pointsDeVente)) {\n      const b = block[0];\n      return { meta:{ startDate:b.startDate, endDate:b.endDate, date:b.date }, rows:b.pointsDeVente };\n    }\n    return { meta:{ startDate:block.startDate, endDate:block.endDate, date:block.date }, rows:block };\n  }\n  if (Array.isArray(block.pointsDeVente)) {\n    return { meta:{ startDate:block.startDate, endDate:block.endDate, date:block.date }, rows:block.pointsDeVente };\n  }\n  return { meta:{}, rows:[] };\n}\n\nfunction classify(sumStock, avgV){\n  const ratio = avgV > 0 ? sumStock / avgV : 0;\n  let statut = \"Adequate\";\n  if (ratio >= 7)      statut = \"OK\";\n  else if (ratio >= 5) statut = \"Adequate\";\n  else if (ratio >= 3) statut = \"Watch\";\n  else if (ratio >= 2) statut = \"Tension\";\n  else                 statut = \"Critical\";\n  return { ratio, statut };\n}\n\nfunction chip(text, kind=\"info\"){\n  const map = {\n    info:{bg:COLORS.infoBg,br:COLORS.infoBr,txt:COLORS.infoTxt},\n    ok:{bg:COLORS.okBg,br:COLORS.okBr,txt:COLORS.okTxt},\n    warn:{bg:COLORS.warnBg,br:COLORS.warnBr,txt:COLORS.warnTxt},\n    danger:{bg:COLORS.errBg,br:COLORS.errBr,txt:COLORS.errTxt},\n  }[kind] || {bg:\"#EEE\", br:\"#DDD\", txt:\"#333\"};\n  return `<span style=\"display:inline-block;padding:2px 8px;border:1px solid ${map.br};border-radius:999px;background:${map.bg};color:${map.txt};font-size:12px;line-height:18px;\">${esc(text)}</span>`;\n}\nfunction chipByStatus(statut){\n  const k = (statut === \"OK\") ? \"ok\"\n        : (statut === \"Adequate\") ? \"info\"\n        : (statut === \"Watch\" || statut === \"Tension\") ? \"warn\"\n        : \"danger\";\n  return chip(statut, k);\n}\nfunction statusKind(statut){\n  return (statut === \"OK\") ? \"ok\"\n       : (statut === \"Adequate\") ? \"info\"\n       : (statut === \"Watch\" || statut === \"Tension\") ? \"warn\"\n       : \"danger\"; // Critical / autres\n}\nfunction statusTextColor(statut){\n  const kind = statusKind(statut);\n  return (kind === \"ok\") ? COLORS.okTxt\n       : (kind === \"info\") ? COLORS.infoTxt\n       : (kind === \"warn\") ? COLORS.warnTxt\n       : COLORS.errTxt;\n}\nfunction daysToDeliver(ratio){\n  const r = Number.isFinite(+ratio) ? Math.floor(+ratio) : 0;\n  return Math.max(0, r);\n}\nfunction daysLabel(d){\n  return `${d} ${d>1 ? \"jours\" : \"jour\"}`;\n}\n\n// ======================= Agrégation par PRODUIT =======================\nfunction aggregateByProduct(periodRows, targetRows, produit){\n  // Agg périodes (somme ventes & jours) par groupe\n  const agg = { Region:{ ventes:0, days:0 }, Dakar:{ ventes:0, days:0 } };\n\n  for (const r of periodRows) {\n    const pdv = r.PointDeVente ?? r.pointVente ?? r.pdv;\n    const g = grp(pdv);\n\n    // VentesThéoriques filtrées par produit (détails), sinon fallback global\n    let vendas = 0;\n    if (Array.isArray(r?.details)) {\n      vendas += pickFromDetails(r, produit, [\"VentesTheoriques\",\"ventesTheoriques\"]);\n    } else {\n      // Fallback si pas de détail produit\n      vendas += pickNum(r, [\"VentesTheoriques\",\"details.0.VentesTheoriques\",\"resume.0.VentesTheoriques\"]);\n    }\n\n    // Nombre de jours (si disponible par produit, sinon global)\n    let days = 0;\n    if (Array.isArray(r?.details)) {\n      days += pickFromDetails(r, produit, [\"AvgVentesTheoriqueDayCount\",\"DaysCount\",\"NbJours\"]);\n    }\n    if (days === 0) {\n      days += pickNum(r, [\"AvgVentesTheoriqueDayCount\",\"details.0.AvgVentesTheoriqueDayCount\",\"resume.0.AvgVentesTheoriqueDayCount\",\"DaysCount\",\"NbJours\"]);\n    }\n\n    agg[g].ventes += vendas;\n    agg[g].days   += days;\n  }\n\n  const avg = {\n    Region: agg.Region.days>0 ? agg.Region.ventes/agg.Region.days : 0,\n    Dakar:  agg.Dakar.days>0  ? agg.Dakar.ventes/agg.Dakar.days   : 0,\n  };\n\n  // Stocks du soir ciblés par produit\n  const stock = { Region:0, Dakar:0 };\n  for (const r of targetRows) {\n    const pdv = r.PointDeVente ?? r.pointVente ?? r.pdv;\n    const g = grp(pdv);\n    let ss = 0;\n    if (Array.isArray(r?.details)) {\n      ss += pickFromDetails(r, produit, [\"StockSoir\",\"stockSoir\"]);\n    } else {\n      ss += pickNum(r, [\"StockSoir\",\"details.0.StockSoir\",\"resume.0.StockSoir\"]);\n    }\n    stock[g] += ss;\n  }\n\n  const cls = {\n    Region: classify(stock.Region, avg.Region),\n    Dakar:  classify(stock.Dakar,  avg.Dakar),\n  };\n\n  return { agg, avg, stock, cls };\n}\n\n// ======================= HTML builders =======================\nconst tableBase = \"width:100%;border-collapse:collapse;margin:8px 0;\";\nconst thBase = `text-align:left;padding:8px;border-bottom:1px solid ${COLORS.border};background:${COLORS.thBg};font-weight:600;font-size:14px;color:${COLORS.thTxt};`;\nconst tdBase = `padding:8px;border-bottom:1px solid ${COLORS.borderLight};font-size:14px;color:${COLORS.tdTxt};`;\n\nfunction buildAveragesTable(label, avg, agg){\n  // (la fonction reste disponible, mais ne sera pas appelée si SHOW_AVERAGES_HTML=false)\n  return `\n  <div style=\"margin:12px 0 4px 0;font-weight:800;color:${COLORS.ink};font-size:16px;\">\n    ${esc(label)} — Moyennes de ventes / jour (période)\n  </div>\n  <table style=\"${tableBase}\">\n    <thead>\n      <tr>\n        <th style=\"${thBase};width:22%\">Groupe</th>\n        <th style=\"${thBase};width:18%;text-align:right;\">Moyenne / jour</th>\n        <th style=\"${thBase};width:30%;text-align:right;\">Somme ventes</th>\n        <th style=\"${thBase};width:30%;text-align:right;\">Somme jours</th>\n      </tr>\n    </thead>\n    <tbody>\n      <tr>\n        <td style=\"${tdBase}\"><strong>Région</strong></td>\n        <td style=\"${tdBase};text-align:right;\">${n2.format(avg.Region)}</td>\n        <td style=\"${tdBase};text-align:right;\">${n0.format(agg.Region.ventes)}</td>\n        <td style=\"${tdBase};text-align:right;\">${n0.format(agg.Region.days)}</td>\n      </tr>\n      <tr>\n        <td style=\"${tdBase}\"><strong>Dakar</strong></td>\n        <td style=\"${tdBase};text-align:right;\">${n2.format(avg.Dakar)}</td>\n        <td style=\"${tdBase};text-align:right;\">${n0.format(agg.Dakar.ventes)}</td>\n        <td style=\"${tdBase};text-align:right;\">${n0.format(agg.Dakar.days)}</td>\n      </tr>\n    </tbody>\n  </table>`;\n}\n\nfunction buildStocksTable(label, avg, stock, cls, indexNumber){\n  // largeurs ajustées pour 6 colonnes\n  // Groupe 18%, Stock 20%, Moy. 20%, Ratio 14%, Livrer dans 14%, Statut 14%\n  const dR = daysToDeliver(cls.Region.ratio);\n  const dD = daysToDeliver(cls.Dakar.ratio);\n  const cR = statusTextColor(cls.Region.statut);\n  const cD = statusTextColor(cls.Dakar.statut);\n\n  return `\n  <div style=\"margin:12px 0 4px 0;font-weight:800;color:${COLORS.ink};font-size:16px;\">\n    ${indexNumber}) ${esc(label)} — Stocks du soir\n  </div>\n  <table style=\"${tableBase}\">\n    <thead>\n      <tr>\n        <th style=\"${thBase};width:18%\">Groupe</th>\n        <th style=\"${thBase};width:20%;text-align:right;\">Stock total</th>\n        <th style=\"${thBase};width:20%;text-align:right;\">Moy. ventes / jour</th>\n        <th style=\"${thBase};width:14%;text-align:right;\">Ratio</th>\n        <th style=\"${thBase};width:14%;text-align:right;\">Livrer dans</th>\n        <th style=\"${thBase};width:14%\">Statut</th>\n      </tr>\n    </thead>\n    <tbody>\n      <tr>\n        <td style=\"${tdBase}\"><strong>Région</strong></td>\n        <td style=\"${tdBase};text-align:right;\">${n0.format(stock.Region)}</td>\n        <td style=\"${tdBase};text-align:right;\">${n2.format(avg.Region)}</td>\n        <td style=\"${tdBase};text-align:right;\">${n2.format(cls.Region.ratio)}</td>\n        <td style=\"${tdBase};text-align:right;\"><span style=\"color:${cR};font-weight:700\">${daysLabel(dR)}</span></td>\n        <td style=\"${tdBase}\">${chipByStatus(cls.Region.statut)}</td>\n      </tr>\n      <tr>\n        <td style=\"${tdBase}\"><strong>Dakar</strong></td>\n        <td style=\"${tdBase};text-align:right;\">${n0.format(stock.Dakar)}</td>\n        <td style=\"${tdBase};text-align:right;\">${n2.format(avg.Dakar)}</td>\n        <td style=\"${tdBase};text-align:right;\">${n2.format(cls.Dakar.ratio)}</td>\n        <td style=\"${tdBase};text-align:right;\"><span style=\"color:${cD};font-weight:700\">${daysLabel(dD)}</span></td>\n        <td style=\"${tdBase}\">${chipByStatus(cls.Dakar.statut)}</td>\n      </tr>\n    </tbody>\n  </table>`;\n}\n\nfunction buildProductSection(label, sectionData, indexNumber){\n  // Affichage demandé : Stocks d’abord.\n  const { agg, avg, stock, cls } = sectionData;\n  let out = `\n    ${buildStocksTable(label, avg, stock, cls, indexNumber)}\n  `;\n  // N'AJOUTE PAS la table \"Moyennes\" si SHOW_AVERAGES_HTML = false\n  if (SHOW_AVERAGES_HTML) {\n    out += buildAveragesTable(label, avg, agg);\n  }\n  return out;\n}\n\n// ======================= Main =======================\nconst root = items[0]?.json || {};\nconst { meta:pm, rows:periodRows } = readBlock(root.period);\nconst { meta:tm, rows:targetRows } = readBlock(root.target);\n\nconst periodStart = normalizeDateStr(pm.startDate ?? \"\");\nconst periodEnd   = normalizeDateStr(pm.endDate ?? \"\");\nconst targetDate  = normalizeDateStr(tm.date ?? \"\");\n\n// Agrège pour chaque produit\nconst sections = {};\nfor (const p of PRODUCTS) {\n  sections[p] = aggregateByProduct(periodRows || [], targetRows || [], p);\n}\n\n// ======================= HTML =======================\nconst container = `margin:0;padding:12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;color:${COLORS.ink};background:${COLORS.bg};`;\nconst wrap = \"max-width:720px;margin:auto;\";\nconst card = `background:${COLORS.card};border:1px solid ${COLORS.border};border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.04);padding:12px;`;\n\nlet html = `\n<div style=\"${container}\">\n  <div style=\"${wrap}\">\n    <div style=\"${card}\">\n      <div style=\"font-size:18px;font-weight:800;color:${COLORS.ink};margin-bottom:4px;\">\n        Suivi stocks du soir\n      </div>\n      <div style=\"font-size:13px;color:${COLORS.sub};margin-bottom:10px;\">\n        Période d’observation : <strong>${esc(periodStart || \"\")} → ${esc(periodEnd || \"\")}</strong>\n        &nbsp;•&nbsp; Date cible : <strong>${esc(targetDate || \"\")}</strong>\n      </div>\n\n      ${buildProductSection(\"Poulet\", sections[\"Poulet\"], 1)}\n      ${buildProductSection(\"Tablette\", sections[\"Tablette\"], 2)}\n\n      <div style=\"margin-top:10px;font-size:12px;color:${COLORS.sub};\">\n        <div style=\"margin:6px 0 2px 0;font-weight:700;color:${COLORS.ink};\">Règles de classification</div>\n        <div>\n          ${chip(\"OK ≥ 7\",\"ok\")} &nbsp; ${chip(\"Adequate ≥ 5\",\"info\")} &nbsp;\n          ${chip(\"Watch ≥ 3\",\"warn\")} &nbsp; ${chip(\"Tension ≥ 2\",\"warn\")} &nbsp;\n          ${chip(\"Critical &lt; 2\",\"danger\")}\n        </div>\n      </div>\n    </div>\n\n    <div style=\"text-align:center;color:${COLORS.sub};font-size:12px;margin-top:10px;\">\n      Généré automatiquement — DSI MATA &nbsp;•&nbsp; ${new Date().toISOString().slice(0,16).replace(\"T\",\" \")} UTC\n    </div>\n  </div>\n</div>`;\n\n// ======================= Texte de secours =======================\nfunction textBlock(p, s){\n  const dR = daysToDeliver(s.cls.Region.ratio);\n  const dD = daysToDeliver(s.cls.Dakar.ratio);\n\n  // --- Partie conservée (Stocks du soir) ---\n  const blockStocks = `\n${p} — Stocks du soir :\n  - Région : ${n0.format(s.stock.Region)} ; Ratio = ${n2.format(s.cls.Region.ratio)} ; Livrer dans = ${daysLabel(dR)} ; Statut = ${s.cls.Region.statut}\n  - Dakar  : ${n0.format(s.stock.Dakar)}  ; Ratio = ${n2.format(s.cls.Dakar.ratio)}  ; Livrer dans = ${daysLabel(dD)} ; Statut = ${s.cls.Dakar.statut}\n`.trim();\n\n  // --- Partie \"Moyennes\" COMMENTÉE pour le texte ---\n  /*\n${p} — Moyennes de ventes/jour (période) :\n  - Région : ${n2.format(s.avg.Region)} (Somme ventes = ${n0.format(s.agg.Region.ventes)}, Somme jours = ${n0.format(s.agg.Region.days)})\n  - Dakar  : ${n2.format(s.avg.Dakar)}  (Somme ventes = ${n0.format(s.agg.Dakar.ventes)},  Somme jours = ${n0.format(s.agg.Dakar.days)})\n  */\n\n  return blockStocks;\n}\n\nconst text = [\n  `Suivi stocks du soir`,\n  `Période : ${periodStart || \"\"} → ${periodEnd || \"\"} | Date cible : ${targetDate || \"\"}`,\n  \"\",\n  textBlock(\"1) Poulet\", sections[\"Poulet\"]),\n  \"\",\n  textBlock(\"2) Tablette\", sections[\"Tablette\"]),\n  \"\",\n  \"Règles : OK ≥ 7 ; Adequate ≥ 5 ; Watch ≥ 3 ; Tension ≥ 2 ; Critical < 2\",\n].join(\"\\n\");\n\n// ======================= Sortie =======================\nreturn [{\n  json: {\n    subject: `📊 Stocks vs Ventes — ${periodStart || \"\"} → ${periodEnd || \"\"}`,\n    html,\n    text,\n    meta: {\n      period: { startDate: periodStart, endDate: periodEnd },\n      target: { date: targetDate }\n    },\n    sections  // { Poulet:{ agg, avg, stock, cls }, Tablette:{ ... } }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        352
+      ],
+      "id": "ea38510b-33b1-41e5-abaa-033629d437fb",
+      "name": "Format Volaille"
+    },
+    {
+      "parameters": {
+        "url": "https://mata-lgzy.onrender.com/api/external/achats-boeuf",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{   (() => {     const [dd, mm, yyyy] =  $items('Code0')[0].json.yest.split('-');     return `${yyyy}-${mm}-${dd}`;   })() }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-api-key",
+              "value": "b326e72b67a9b508c88270b9954c5ca1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        96,
+        -80
+      ],
+      "id": "bf69539f-1df0-4940-b72e-eb0e24d42cc2",
+      "name": "Get Boeuf prix from matix1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Function node — Sections strictement limitées à la capture\n// Sortie: [{ json: { subject, html, text } }]\n\n/* ---------------- Helpers ---------------- */\nfunction formatCurrency(v){ const n=Number(v)||0; return n.toLocaleString('fr-FR')+' FCFA'; }\nfunction formatNumber(v){\n  const n=Number(v); if(!Number.isFinite(n)) return '0';\n  const isInt = Math.abs(n - Math.round(n)) < 1e-9;\n  return n.toLocaleString('fr-FR',{minimumFractionDigits:isInt?0:2, maximumFractionDigits:isInt?0:2});\n}\nfunction normalizeDateStr(s){\n  if (!s) return '';\n  if (s instanceof Date && !isNaN(s)) return s.toISOString().slice(0,10);\n  if (typeof s!=='string'){ const d=new Date(s); return isNaN(d)?'':d.toISOString().slice(0,10); }\n  const t=s.trim();\n  if (/^\\d{4}-\\d{2}-\\d{2}T/.test(t)) return t.slice(0,10);\n  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(t)) return t;\n  if (/^\\d{2}-\\d{2}-\\d{4}$/.test(t)){ const [jj,mm,aa]=t.split('-'); return `${aa}-${mm}-${jj}`; }\n  if (/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(t)){ const [jj,mm,aa]=t.split('/'); return `${aa}-${mm}-${jj}`; }\n  const d=new Date(t); return isNaN(d)?'':d.toISOString().slice(0,10);\n}\nfunction esc(x){ return String(x??'').replace(/[&<>\"']/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c])); }\nfunction safeItems(name){ try{ return (typeof $items==='function')?($items(name)||[]):[] }catch(_){ return [] } }\nfunction normalizeSpecies(s){\n  const t = String(s||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').trim().toLowerCase();\n  return (t==='veau') ? 'veau' : 'boeuf'; // défaut = boeuf\n}\n\n/* ---------- Badges statut (Bon/Acceptable/Mauvais) pour prix/kg ---------- */\nconst BADGE_BASE = 'display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;line-height:18px;color:#fff;';\nconst BADGE_COLORS = { success:'#16a34a', warning:'#f59e0b', danger:'#dc2626' };\n\nfunction badge(label, tone){\n  const bg = BADGE_COLORS[tone] || '#6b7280';\n  return `<span class=\"badge bg-${tone}\" style=\"${BADGE_BASE};background:${bg};\">${esc(label)}</span>`;\n}\n\nfunction classifyPrice(species, prixKg){\n  const v = Number(prixKg)||0;\n  if (species==='boeuf'){\n    if (v <= 3200) return {label:'Bon', tone:'success'};\n    if (v >= 3201 && v <= 3350) return {label:'Acceptable', tone:'warning'};\n    if (v > 3350) return {label:'Mauvais', tone:'danger'};\n  } else { // veau\n    if (v <= 3400) return {label:'Bon', tone:'success'};\n    if (v >= 3401 && v <= 3550) return {label:'Acceptable', tone:'warning'};\n    if (v > 3550) return {label:'Mauvais', tone:'danger'};\n  }\n  return null;\n}\nfunction statusBadge(species, prixKg){\n  const cls = classifyPrice(species, prixKg);\n  return cls ? badge(cls.label, cls.tone) : 'N.A';\n}\nfunction statusText(species, prixKg){\n  const cls = classifyPrice(species, prixKg);\n  return cls ? cls.label : 'N.A';\n}\n\n/* --------------- Charger données matix1 (prix bœuf/veau) ---------------- */\nconst MATIX_NODE = 'Get Boeuf prix from matix1';\n\nfunction normalizeMatixPayload(j){\n  if (!j) return null;\n  if (typeof j==='string'){ try{ j=JSON.parse(j);}catch{} }\n  if (j?.data) j=j.data;\n  if (j?.achats || j?.totals || j?.week || j?.month){\n    return {\n      achats: Array.isArray(j.achats)? j.achats : [],\n      totals: j.totals || null,\n      week:   j.week   || null,\n      month:  j.month  || null,\n    };\n  }\n  if (Array.isArray(j)){\n    for (const r of j){ const p=normalizeMatixPayload(r); if (p) return p; }\n  }\n  return null;\n}\nfunction collectMatixPurchases(){\n  const out={ achats:[], totals:null, week:null, month:null };\n  // 1) items directs\n  for (const it of items){\n    const pack=normalizeMatixPayload(it?.json); if (!pack) continue;\n    out.totals ||= pack.totals; out.week ||= pack.week; out.month ||= pack.month;\n    out.achats.push(...pack.achats);\n  }\n  // 2) via nœud matix\n  for (const it of safeItems(MATIX_NODE)){\n    const pack=normalizeMatixPayload(it?.json); if (!pack) continue;\n    out.totals ||= pack.totals; out.week ||= pack.week; out.month ||= pack.month;\n    out.achats.push(...pack.achats);\n  }\n  // dédup + tri\n  const seen=new Set();\n  out.achats = out.achats.filter(a=>{\n    const key=`${a?.id||''}|${a?.date||''}|${a?.prix||''}|${(a?.bete||'').toLowerCase()}`;\n    if (seen.has(key)) return false; seen.add(key); return true;\n  }).sort((a,b)=>{\n    const da=normalizeDateStr(a?.date), db=normalizeDateStr(b?.date);\n    if (da!==db) return da.localeCompare(db);\n    return (a?.id||0)-(b?.id||0);\n  });\n  return out;\n}\n\n/* ------------------- UI helpers ------------------- */\nconst STYLE_WRAP = 'font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.4;color:#222;padding:10px;';\nconst STYLE_H2   = 'margin:10px 0 6px 0;font-size:16px;';\nconst STYLE_TBL  = 'width:100%;border-collapse:collapse;margin:6px 0 12px 0;table-layout:fixed;';\nconst STYLE_TH   = 'text-align:left;border-bottom:1px solid #e5e7eb;padding:8px 6px;background:#f8fafc;font-weight:600;';\nconst STYLE_TD   = 'padding:8px 6px;border-bottom:1px solid #f1f5f9;word-wrap:break-word;';\n\nfunction htmlTable(headers, rows){\n  const h = ['<table style=\"'+STYLE_TBL+'\"><thead><tr>'];\n  for (const th of headers) h.push('<th style=\"'+STYLE_TH+'\">'+esc(th)+'</th>');\n  h.push('</tr></thead><tbody>');\n  for (const r of rows){\n    h.push('<tr>'); for (const c of r) h.push('<td style=\"'+STYLE_TD+'\">'+(c ?? '')+'</td>'); h.push('</tr>');\n  }\n  h.push('</tbody></table>'); return h.join('');\n}\nfunction textTable(headers, rows){\n  const head=headers.join(' | ');\n  const sep=headers.map(h=>'—'.repeat(Math.max(3, String(h).length))).join('-|-');\n  const body=rows.map(r=>r.join(' | ')).join('\\n');\n  return [head,sep,body].join('\\n');\n}\n\n/* ------------------- Génération ------------------- */\nconst matix = collectMatixPurchases();\n\n// Détails du jour (achats listés) + STATUT\nconst detailsRows = (matix.achats.length ? matix.achats : []).map(a=>{\n  const species = normalizeSpecies(a.bete);\n  const prixKg  = Number(a.prix_achat_kg_sans_abats)||0;\n  return [\n    esc(normalizeDateStr(a.date)||'—'),\n    esc(species==='veau' ? 'Veau' : 'Bœuf'),\n    esc(formatCurrency(a.prix)),\n    esc(formatCurrency(a.abats)),\n    esc(formatNumber(a.nbr_kg)),\n    esc(formatNumber(prixKg)),\n    statusBadge(species, prixKg),            // <<< NOUVELLE COLONNE\n  ];\n});\nif (detailsRows.length===0) detailsRows.push(['—','—','Aucun achat','—','—','—','—']);\n\n// Blocs de totaux (jour / semaine) — ajout du STATUT sur le prix/kg moyen\nfunction blockTotalsHTML(label, obj){\n  if (!obj) return '';\n  const vB = Number(obj.avgPrixKgSansAbatsBoeuf ?? obj.avgPrixKgBoeuf);\n  const vV = Number(obj.avgPrixKgSansAbatsVeau  ?? obj.avgPrixKgVeau);\n  const rows = [\n    [\n      'Bœuf',\n      formatNumber(obj.nbrBoeuf),\n      formatCurrency(obj.totalPrixBoeuf),\n      formatCurrency(obj.totalAbatsBoeuf),\n      formatNumber(obj.totalKgBoeuf),\n      formatNumber(vB),\n      statusBadge('boeuf', vB)\n    ],\n    [\n      'Veau',\n      formatNumber(obj.nbrVeau),\n      formatCurrency(obj.totalPrixVeau),\n      formatCurrency(obj.totalAbatsVeau),\n      formatNumber(obj.totalKgVeau),\n      formatNumber(vV),\n      statusBadge('veau', vV)\n    ],\n  ];\n  return '<h3 style=\"margin:8px 0 4px 0;font-size:15px;\">'+esc(label)+'</h3>' +\n         htmlTable(['Type','Nbr','Total Prix','Total Abats','Total Kg','Prix/kg avec abats et frais (moy.)','Statut'], rows);\n}\nfunction blockTotalsTEXT(label, obj){\n  if (!obj) return '';\n  const vB = Number(obj.avgPrixKgSansAbatsBoeuf ?? obj.avgPrixKgBoeuf);\n  const vV = Number(obj.avgPrixKgSansAbatsVeau  ?? obj.avgPrixKgVeau);\n  const rows = [\n    ['Bœuf', String(obj.nbrBoeuf||0), formatCurrency(obj.totalPrixBoeuf), formatCurrency(obj.totalAbatsBoeuf), formatNumber(obj.totalKgBoeuf), formatNumber(vB), statusText('boeuf', vB)],\n    ['Veau', String(obj.nbrVeau||0), formatCurrency(obj.totalPrixVeau), formatCurrency(obj.totalAbatsVeau), formatNumber(obj.totalKgVeau), formatNumber(vV), statusText('veau', vV)],\n  ];\n  return '— '+label+' —\\n'+textTable(['Type','Nbr','Total Prix','Total Abats','Total Kg','Prix/kg avec abats et frais (moy.)','Statut'], rows);\n}\n\n/* ---------------- HTML (uniquement les 3 sections demandées) ---------------- */\nconst H=[];\nH.push('<div style=\"'+STYLE_WRAP+'\">');\nH.push('<h2 style=\"'+STYLE_H2+'\">Détails des achats du jour</h2>');\nH.push(htmlTable(['Date','Bête','Prix','Abats','Kg','Prix/kg sans abats','Statut'], detailsRows));\nH.push(blockTotalsHTML('Totaux JOUR',   matix.totals));\nH.push(blockTotalsHTML('Totaux SEMAINE',matix.week));\nH.push('</div>');\nconst html = H.join('');\n\n/* ---------------- TEXTE (miroir simple des mêmes sections) ---------------- */\nconst T=[];\nT.push('Détails des achats du jour');\nT.push(textTable(['Date','Bête','Prix','Abats','Kg','Prix/kg sans abats','Statut'], detailsRows.map(r=>r.map(String))));\nT.push('');\nif (matix.totals)  T.push(blockTotalsTEXT('Totaux JOUR', matix.totals));\nif (matix.week)    T.push('\\n'+blockTotalsTEXT('Totaux SEMAINE', matix.week));\nconst text = T.join('\\n');\n\n/* --------------- Sortie --------------- */\nreturn [{\n  json: {\n    subject: 'Détails achats du jour',\n    html,\n    text,\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        -80
+      ],
+      "id": "c746b807-0525-4d26-bf8b-ca71a3bc9087",
+      "name": "Boeuf prix"
+    },
+    {
+      "parameters": {
+        "url": "https://mata-depenses-management.onrender.com/external/api/status",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ $items('Code0')[0].json.yest.split(/[\\/.-]/).reverse().join('-') }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-api-key",
+              "value": "4f8d9a2b6c7e8f1a3b5c9d0e2f4g6h7i"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        -80
+      ],
+      "id": "c446d54d-e224-4cd4-b21e-e57cddda33e1",
+      "name": "Get Depenses",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Function node — Dépenses (vue épurée conforme à la capture)\n// Sortie: [{ json: { subject, html, text } }]\n\n'use strict';\n\n/* ---------- Helpers ---------- */\nconst nf = new Intl.NumberFormat('fr-FR');\nconst n0 = (v) => {\n  const num = Number(v);\n  return nf.format(Number.isFinite(num) ? num : 0);\n};\nconst esc = (s) =>\n  String(s ?? '').replace(/[&<>\"']/g, (c) => (\n    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]\n  ));\nconst isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);\n\nfunction getSourceData() {\n  try {\n    const prev = (typeof $items === 'function') ? $items('Get Depenses') : [];\n    if (Array.isArray(prev) && prev.length && isObj(prev[0]?.json)) return prev[0].json;\n  } catch {}\n  return items?.[0]?.json ?? {};\n}\n\n/* ---------- Lecture des données (depuis \"Get Depenses\") ---------- */\nconst data = getSourceData();\nconst dateSelected = data.date_selected || data.period_info?.selected_date || '—';\n\n/* ---------- Agrégats Jour / Semaine / Mois ---------- */\nlet totalDay = 0, totalWeek = 0, totalMonth = 0;\nconst dailyRowsHTML = [];\nconst dailyRowsTEXT = [];\n\nif (isObj(data.accounts)) {\n  for (const [, groupObj] of Object.entries(data.accounts)) {\n    if (!isObj(groupObj)) continue;\n\n    for (const [accName, accData] of Object.entries(groupObj)) {\n      if (!isObj(accData)) continue;\n\n      const dayExp   = Number(accData.dailyExpenses?.total_daily_expenses || 0);\n      const weekExp  = Number(accData.weeklyExpenses?.total_weekly_expenses || 0);\n      const monthExp = Number(accData.monthlyExpenses?.total_monthly_expenses || 0);\n\n      totalDay  += dayExp;\n      totalWeek += weekExp;\n      totalMonth+= monthExp;\n\n      // Lignes de détail uniquement si le total du jour du compte ≠ 0\n      if (dayExp !== 0) {\n        const list = Array.isArray(accData.dailyExpenses?.expenses)\n          ? accData.dailyExpenses.expenses\n          : [];\n        for (const e of list) {\n          const amount = Number(e?.amount || 0);\n          if (!Number.isFinite(amount) || amount === 0) continue;\n\n          // HTML\n          dailyRowsHTML.push([\n            esc(accName),\n            esc(e?.description ?? ''),\n            esc(e?.supplier ?? ''),\n            n0(amount),\n            esc(e?.category ?? ''),\n            esc(e?.subcategory ?? ''),\n            esc(e?.type ?? ''),\n          ]);\n\n          // TEXT\n          dailyRowsTEXT.push([\n            String(accName),\n            String(e?.description ?? ''),\n            String(e?.supplier ?? ''),\n            n0(amount),\n            String(e?.category ?? ''),\n            String(e?.subcategory ?? ''),\n            String(e?.type ?? ''),\n          ]);\n        }\n      }\n    }\n  }\n}\n\n/* ---------- UI helpers ---------- */\nfunction table(headers, rows) {\n  const thead = `<thead><tr>${headers.map(h=>`<th style=\"text-align:left;padding:6px;border-bottom:1px solid #ddd;\">${esc(h)}</th>`).join('')}</tr></thead>`;\n  const tbody = `<tbody>${rows.map(r=>`<tr>${r.map(c=>`<td style=\"padding:6px;border-bottom:1px solid #f0f0f0;\">${c}</td>`).join('')}</tr>`).join('')}</tbody>`;\n  return `<table style=\"border-collapse:collapse;width:100%;margin:6px 0 12px 0;\">${thead}${tbody}</table>`;\n}\nfunction asTextTable(headers, rows){\n  const line = headers.join(' | ');\n  const sep  = headers.map(h=>'—'.repeat(Math.max(3, h.length))).join('-|-');\n  const body = rows.map(r => r.join(' | ')).join('\\n');\n  return [line, sep, body].join('\\n');\n}\n\n/* ---------- Construction HTML (strictement la capture) ---------- */\nconst html = `\n  <div style=\"font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.4;\">\n    <p style=\"margin:0 0 8px 0;\">Date : ${esc(dateSelected)}</p>\n\n    ${table(['Dépenses du jour','Semaine','Mois'], [[n0(totalDay), n0(totalWeek), n0(totalMonth)]])}\n\n    <p style=\"margin:14px 0 6px 0;font-weight:600;\">Dépenses du jour (≠ 0) – tous comptes</p>\n    ${table(\n      ['Compte','Description','Fournisseur','Montant','Catégorie','Sous-catégorie','Type'],\n      dailyRowsHTML.length ? dailyRowsHTML : [['—','—','—','—','—','—','—']]\n    )}\n  </div>\n`.trim();\n\n/* ---------- Version texte (miroir concis) ---------- */\nconst textParts = [];\ntextParts.push(`Date : ${dateSelected}`);\ntextParts.push(`Jour=${n0(totalDay)} | Semaine=${n0(totalWeek)} | Mois=${n0(totalMonth)}`);\ntextParts.push('');\ntextParts.push('Dépenses du jour (≠ 0) – tous comptes');\ntextParts.push(\n  asTextTable(\n    ['Compte','Description','Fournisseur','Montant','Catégorie','Sous-catégorie','Type'],\n    dailyRowsTEXT.length ? dailyRowsTEXT : [['—','—','—','—','—','—','—']]\n  )\n);\nconst text = textParts.join('\\n');\n\n/* ---------- Sortie ---------- */\nreturn [{\n  json: {\n    subject: `Dépenses — ${dateSelected}`,\n    html,\n    text,\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        992,
+        -80
+      ],
+      "id": "323cb8d9-ef53-418f-83cb-f51fce93557a",
+      "name": "Format Depenses",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "url": "https://api.bictorys.com/pay/v1/transactions/amount",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "start_date",
+              "value": "={{ new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString().replace('.000Z', '+00') }}"
+            },
+            {
+              "name": "end_date",
+              "value": "={{ new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate())).toISOString().replace('.000Z', '+00') }}"
+            },
+            {
+              "name": "type",
+              "value": "payment"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "secret-65ee2442-d88f-458f-9f1d-af596e7c7de5.paUPlDWNwrFzHWZcv80iocawTkdcfSfgnmnGVcj9JVCq5e6ghiCNU8nLjy9ivTcA"
+            },
+            {
+              "name": "accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1184,
+        -80
+      ],
+      "id": "b53be4c6-0568-42df-bdb6-451c291d3a1b",
+      "name": "Get all amount http",
+      "executeOnce": false,
+      "alwaysOutputData": false,
+      "notesInFlow": true,
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mode: Run Once for All Items\nconst value = items[0].json;     // <- 54762436 (number)\nreturn [{ json: { amount: Number(value) } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        -80
+      ],
+      "id": "870a1434-8921-40b2-9f09-c4a029a4b2aa",
+      "name": "format amount"
+    },
+    {
+      "parameters": {
+        "url": "https://api.bictorys.com/balance-management/v1/balance/me",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "secret-65ee2442-d88f-458f-9f1d-af596e7c7de5.OMhl3SfA22eMFVmHrDVoKwQoClT72Asn4E7gxTl1Fm5GiZ97Z62kbq2eNmuEGoKy"
+            },
+            {
+              "name": "accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1744,
+        176
+      ],
+      "id": "0608537a-5f9c-4788-97e9-89104e79d19d",
+      "name": "Get balance"
+    },
+    {
+      "parameters": {
+        "url": "https://mata-lgzy.onrender.com/api/external/estimation",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ $items(\"Code0\")[0].json.date[\"date-0\"] }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "b326e72b67a9b508c88270b9954c5ca1"
+            },
+            {
+              "name": "accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        608,
+        176
+      ],
+      "id": "cf5186da-5505-401d-ae02-5f9a0518ae7c",
+      "name": "Get estimations",
+      "executeOnce": false,
+      "alwaysOutputData": false,
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Function node\n// Vue détaillée \"ligne à ligne\" + ligne placeholder \"pas d’estimation !\" si aucune donnée\n// Source: sortie JSON du nœud \"Get estimations\"\n\nconst PLACEHOLDER_TEXT = 'pas d’estimation !';\n\nconst srcItems = $items('Get estimations', 0, 0);\nlet payload = (srcItems && srcItems[0] && srcItems[0].json) ? srcItems[0].json : $json;\nif (Array.isArray(payload)) payload = payload[0] || {};\nconst dataRoot = payload.data || payload;\n\n// ----- Helpers -----\nconst toNumber = (v) => Number(v) || 0;\nconst fmtIntDot = (v) => {\n  if (v === null || v === undefined || v === '') return '';\n  const n = Math.round(toNumber(v));\n  return n.toString().replace(/\\B(?=(\\d{3})+(?!\\d))/g, '.'); // 75.000\n};\nconst fmtPct = (v) => `${(Number.isFinite(v) ? v : 0).toFixed(2)} %`;\n\nfunction statusFromPct(pct) {\n  if (!Number.isFinite(pct)) return {emoji: '⚪', label: 'N.A', color: '#6b7280'};\n  const ap = Math.abs(pct);\n  if (ap <= 10) return {emoji: '🟢', label: 'Vert',  color: '#16a34a'};\n  if (ap <= 20) return {emoji: '🟡', label: 'Jaune', color: '#d97706'};\n  return {emoji: '🔴', label: 'Rouge', color: '#dc2626'};\n}\n\n// ----- En-têtes (Pré-commande avant Estimation) -----\nconst headers = [\n  'Date',\n  'Point de Vente',\n  'Catégorie',\n  'Pré-commande',\n  'Estimation',\n  'Ventes théo.',\n  'Différence',\n  'Différence (%)',\n  'Status',\n  'Commentaire',\n];\n\n// ----- Construction des lignes à partir de la data -----\nlet dateKey = '';\nconst detailRows = [];\n\nif (dataRoot && Object.keys(dataRoot).length > 0) {\n  const dateKeys = Object.keys(dataRoot);\n  dateKey = dateKeys[0];\n  const pdvBlock = dataRoot[dateKey] || {};\n\n  for (const [pdv, categories] of Object.entries(pdvBlock)) {\n    for (const [categorie, c] of Object.entries(categories || {})) {\n      const hasEstimation = !(c.estimation === undefined || c.estimation === null || String(c.estimation).trim() === '');\n      const estimation  = hasEstimation ? toNumber(c.estimation) : null;\n      const precommande = toNumber(c.precommande);\n      const ventesTheo  = toNumber(c.ventes_theoriques);\n\n      const difference  = (c.difference !== undefined && c.difference !== null)\n        ? toNumber(c.difference)\n        : (ventesTheo - (hasEstimation ? estimation : 0) - precommande);\n\n      const differencePct = (hasEstimation && estimation !== 0) ? (difference / estimation) * 100 : NaN;\n      const st = statusFromPct(differencePct);\n\n      detailRows.push({\n        date: dateKey,\n        pointDeVente: pdv,\n        categorie,\n        precommande,\n        estimation,           // null => affichage \"pas d’estimation !\"\n        hasEstimation,\n        ventesTheo,\n        difference,\n        differencePct,\n        status: st,\n        commentaire: (c.commentaire ?? '-'),\n      });\n    }\n  }\n\n  // tri optionnel\n  detailRows.sort((a, b) =>\n    a.date.localeCompare(b.date, 'fr') ||\n    a.pointDeVente.localeCompare(b.pointDeVente, 'fr') ||\n    a.categorie.localeCompare(b.categorie, 'fr')\n  );\n}\n\n// ----- HTML -----\nlet html = `\n<table style=\"width:100%;border-collapse:collapse;font-family:Inter,Arial,sans-serif;font-size:14px\">\n  <thead>\n    <tr style=\"background:#f9fafb;color:#111827;text-align:left\">\n      ${headers.map(h => `<th style=\"padding:10px 8px;border-bottom:1px solid #e5e7eb\">${h}</th>`).join('')}\n    </tr>\n  </thead>\n  <tbody>\n`;\n\nif (detailRows.length === 0) {\n  // AUCUNE DONNÉE : afficher une ligne unique dans le tbody\n  html += `\n    <tr>\n      <td colspan=\"${headers.length}\" style=\"padding:14px 10px;color:#6b7280;text-align:center;font-style:italic;background:#fbfbfd;border-bottom:1px solid #f3f4f6\">\n        ${PLACEHOLDER_TEXT}\n      </td>\n    </tr>\n  `;\n} else {\n  for (const r of detailRows) {\n    const pctText = Number.isFinite(r.differencePct) ? fmtPct(r.differencePct) : 'N.A';\n    const diffColor = r.difference >= 0 ? '#16a34a' : '#dc2626';\n    const estCell = r.hasEstimation ? fmtIntDot(r.estimation) : `<span style=\"font-weight:600\">${PLACEHOLDER_TEXT}</span>`;\n\n    html += `\n      <tr style=\"border-bottom:1px solid #f3f4f6\">\n        <td style=\"padding:10px 8px;color:#111827\">${r.date}</td>\n        <td style=\"padding:10px 8px;color:#111827\">${r.pointDeVente}</td>\n        <td style=\"padding:10px 8px;color:#111827\">${r.categorie}</td>\n        <td style=\"padding:10px 8px;color:#111827;font-weight:600\">${fmtIntDot(r.precommande)}</td>\n        <td style=\"padding:10px 8px;color:#111827;font-weight:600\">${estCell}</td>\n        <td style=\"padding:10px 8px;color:#111827\">${fmtIntDot(r.ventesTheo)}</td>\n        <td style=\"padding:10px 8px;color:${diffColor};font-weight:600\">${fmtIntDot(r.difference)}</td>\n        <td style=\"padding:10px 8px;color:${r.status.color};font-weight:600\">${pctText}</td>\n        <td style=\"padding:10px 8px;color:${r.status.color};font-weight:600\">\n          <span style=\"display:inline-block;width:10px;height:10px;border-radius:50%;background:${r.status.color};vertical-align:middle;margin-right:6px\"></span>\n          ${r.status.label}\n        </td>\n        <td style=\"padding:10px 8px;color:#6b7280\">${String(r.commentaire || '-')}</td>\n      </tr>\n    `;\n  }\n}\nhtml += '</tbody></table>';\n\n// ----- TEXTE (monospacé) -----\nconst table = [headers];\nif (detailRows.length === 0) {\n  // Une seule ligne avec placeholder (alignée sous la 1ʳᵉ colonne)\n  const row = new Array(headers.length).fill('');\n  row[0] = PLACEHOLDER_TEXT;\n  table.push(row);\n} else {\n  for (const r of detailRows) {\n    table.push([\n      r.date,\n      r.pointDeVente,\n      r.categorie,\n      fmtIntDot(r.precommande),\n      r.hasEstimation ? fmtIntDot(r.estimation) : PLACEHOLDER_TEXT,\n      fmtIntDot(r.ventesTheo),\n      fmtIntDot(r.difference),\n      Number.isFinite(r.differencePct) ? fmtPct(r.differencePct) : 'N.A',\n      r.status.emoji,\n      String(r.commentaire || '-'),\n    ]);\n  }\n}\nconst colWidths = headers.map((_, i) =>\n  Math.max(...table.map(row => String(row[i]).length))\n);\nlet text = '';\nfor (const row of table) {\n  text += row.map((cell, i) => String(cell).padEnd(colWidths[i] + 2, ' ')).join('') + '\\n';\n}\n\nreturn [{\n  json: {\n    date: dateKey || '',\n    rows_detail: detailRows,\n    html,\n    text,\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        176
+      ],
+      "id": "6ab21ce9-a67e-4484-bc5a-1d64353e8c88",
+      "name": "Format estimation"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * n8n Function — Chambre froide : Stocks (Nbr) & Perration (Valeur)\n * Lit items[0].json.data.details[\"Chambre froide\"]\n * Colonnes : stockMatinNombre | stockSoirNombre | transfertsNombre | ventesTheoriquesValeur (Perration)\n * Sortie : [{ json: { subject, html, text } }]\n */\n\n/* ---------- utils ---------- */\nconst esc = s => String(s ?? \"\").replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));\nconst toNum = v => Number.isFinite(Number(v)) ? Number(v) : 0;\nconst numFr = v => {\n  const n = toNum(v);\n  const isInt = Math.abs(n - Math.round(n)) < 1e-9;\n  return n.toLocaleString('fr-FR', { minimumFractionDigits: isInt?0:2, maximumFractionDigits: isInt?0:2 });\n};\n\n/* ---------- lecture ---------- */\nconst root = items?.[0]?.json || {};\nconst cf = root?.data?.details?.[\"Chambre froide\"];\n\nif (!cf || typeof cf !== \"object\") {\n  return [{\n    json: {\n      subject: 'Chambre froide — aucune donnée',\n      html: `<div style=\"font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;padding:12px;\">\n               <div style=\"max-width:900px;margin:auto;background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:14px;\">\n                 <div style=\"font-weight:800;font-size:16px;margin-bottom:6px;\">Chambre froide — tableau</div>\n                 <div style=\"color:#475569;font-size:13px;\">Aucune donnée trouvée sous <code>data.details[\"Chambre froide\"]</code> dans l'entrée du nœud.</div>\n               </div>\n             </div>`,\n      text: 'Chambre froide — aucune donnée dans data.details'\n    }\n  }];\n}\n\n/* ---------- lignes ---------- */\nconst rows = [];\nfor (const [produit, node] of Object.entries(cf)) {\n  const sm = toNum(node?.stockMatinNombre);\n  const ss = toNum(node?.stockSoirNombre);\n  const tr = toNum(node?.transfertsNombre);\n  const vt = toNum(node?.ventesTheoriquesValeur); // Perration (Valeur)\n\n  if (sm !== 0 || ss !== 0 || tr !== 0 || vt !== 0) {\n    rows.push({ produit, sm, ss, tr, vt });\n  }\n}\nif (rows.length === 0) rows.push({ produit: '—', sm: 0, ss: 0, tr: 0, vt: 0 });\n\n/* ---------- HTML ---------- */\nconst th = `padding:10px;border-bottom:1px solid #E5E7EB;background:#F8FAFC;color:#111827;font-weight:700;white-space:nowrap;`;\nconst td = `padding:10px;border-bottom:1px solid #F1F5F9;font-size:14px;white-space:nowrap;`;\nconst tdR = v => `<td style=\"${td}text-align:right;\">${numFr(v)}</td>`;\nconst tdM = v => `<td style=\"${td}text-align:right;\">${numFr(v)} FCFA</td>`;\n\nlet body = '';\nfor (const r of rows) {\n  body += `<tr>\n    <td style=\"${td}text-align:left;\">Chambre froide</td>\n    <td style=\"${td}text-align:left;\">${esc(r.produit)}</td>\n    ${tdR(r.sm)}\n    ${tdR(r.ss)}\n    ${tdR(r.tr)}\n    ${tdM(r.vt)}\n  </tr>`;\n}\n\nconst html = `\n<div style=\"font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;color:#0F172A;background:#F8FAFC;padding:12px;\">\n  <div style=\"max-width:980px;margin:auto;background:#FFF;border:1px solid #E5E7EB;border-radius:10px;padding:14px;\">\n    <div style=\"font-weight:800;font-size:16px;margin-bottom:8px;\">Chambre froide — Stocks (Nombres) & Perration (Valeur)</div>\n    <table role=\"presentation\" style=\"width:100%;border-collapse:collapse;\">\n      <thead>\n        <tr>\n          <th style=\"${th};text-align:left;\">Point de vente</th>\n          <th style=\"${th};text-align:left;\">Produit</th>\n          <th style=\"${th};text-align:right;\">Stock matin (Nbr)</th>\n          <th style=\"${th};text-align:right;\">Stock soir (Nbr)</th>\n          <th style=\"${th};text-align:right;\">Transferts (Nbr)</th>\n          <th style=\"${th};text-align:right;\">Perration (Valeur)</th>\n        </tr>\n      </thead>\n      <tbody>${body}</tbody>\n    </table>\n    <div style=\"margin-top:8px;color:#475569;font-size:12px;\">\n      Champs lus : <code>stockMatinNombre</code>, <code>stockSoirNombre</code>, <code>transfertsNombre</code>, <code>ventesTheoriquesValeur</code>.\n    </div>\n  </div>\n</div>`;\n\n/* ---------- TEXTE : format avec puces par produit ---------- */\nconst bullet = rows.map(r =>\n  [\n    `${r.produit}`,\n    `\\t* Stock matin : ${numFr(r.sm)}`,\n    `\\t* Stock soir  : ${numFr(r.ss)}`,\n    `\\t* Transferts  : ${numFr(r.tr)}`,\n    `\\t* Perration   : ${numFr(r.vt)} FCFA`\n  ].join('\\n')\n).join('\\n\\n');\n\nconst text = `Chambre froide — Stocks (Nombres) & Perration (Valeur)\\n\\n${bullet}`;\n\nreturn [{ json: { subject: 'Chambre froide — stocks (Nbr) & perration (Valeur)', html, text } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        176
+      ],
+      "id": "65e08a20-db96-4fc0-aed6-1950b8629986",
+      "name": "Get Chambre froide"
+    },
+    {
+      "parameters": {
+        "url": "https://mata-lgzy.onrender.com/api/external/reconciliation",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ $json.date }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-api-key",
+              "value": "b326e72b67a9b508c88270b9954c5ca1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1152,
+        176
+      ],
+      "id": "fa059aee-f33e-4af5-80d0-f31d157c43b4",
+      "name": "Get Rec from matix for CF"
+    },
+    {
+      "parameters": {
+        "url": "https://mata-lgzy.onrender.com/api/external/analytics",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "prixAchatAgneau",
+              "value": "3800"
+            },
+            {
+              "name": "prixAchatPoulet",
+              "value": "2800"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "b326e72b67a9b508c88270b9954c5ca1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1136,
+        480
+      ],
+      "id": "52e48db6-4095-4535-836e-4628bb94c1bc",
+      "name": "Get analytics"
+    },
+    {
+      "parameters": {
+        "url": "https://matix-livreur-backend.onrender.com/api/external/mlc/livreurStats/daily",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{   (() => {     const [dd, mm, yyyy] =  $items('Code0')[0].json.yest.split('-');     return `${yyyy}-${mm}-${dd}`;   })() }}"
+            },
+            {
+              "name": "seuilMataPanier",
+              "value": "7401"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1360,
+        480
+      ],
+      "id": "c1007053-9f41-4d29-8088-541b78988e71",
+      "name": "mlc",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "https://matapointdeventecrm.onrender.com/api/external/point-vente/status",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "4f8d9a2b6c7e8f1a3b5c9d0e2f4g6h7i"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1584,
+        480
+      ],
+      "id": "2f79ac77-b204-48a6-8831-373ce2acbd1e",
+      "name": "point de vente status"
+    },
+    {
+      "parameters": {
+        "url": "https://mata-lgzy.onrender.com/api/external/performance-achat",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-api-key",
+              "value": "b326e72b67a9b508c88270b9954c5ca1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1872,
+        480
+      ],
+      "id": "464f657f-37b4-4f1a-a991-30740d7bd655",
+      "name": "Perf Achat"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Function node n8n\n// items[0].json doit contenir la structure PerfAchat (periode, resume, latestEstimation, actualite, etc.)\n\nfunction escapeHtml(str) {\n  if (str === null || str === undefined) return '';\n  return String(str)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n}\n\nfunction formatNumber(value, decimals = 2) {\n  if (value === null || value === undefined || isNaN(value)) return '-';\n  return Number(value)\n    .toFixed(decimals)\n    .replace('.', ',');\n}\n\nfunction formatInteger(value) {\n  if (value === null || value === undefined || isNaN(value)) return '-';\n  return String(value);\n}\n\nfunction formatDateTime(ts) {\n  if (!ts) return '-';\n  // Simple format lisible\n  return ts.replace('T', ' ').replace('.000Z', ' UTC');\n}\n\nfunction getTypeBadgeClass(type) {\n  if (type === 'Parfait') return 'badge-good';\n  if (type === 'Surestimation') return 'badge-bad';\n  if (type === 'Sous-estimation') return 'badge-warn';\n  return 'badge-neutral';\n}\n\n// 1. Récupération racine JSON\nlet root = items[0].json;\nif (Array.isArray(root)) {\n  root = root[0];\n}\n\nconst latest = root.latestEstimation || [];\nconst resume = root.resume || {};\nconst periode = root.periode || {};\nconst actualite = root.actualite || {};\n\n// 1.bis – Totaux pour le footer du tableau \"Dernière estimation achat\"\nlet totalPoidsEstime = 0;\nlet totalPoidsReel = 0;\nlet totalPrix = 0;\nlet totalEcart = 0;\n\nlatest.forEach((e) => {\n  const pe = Number(e.poids_estime);\n  const pr = Number(e.poids_reel);\n  const px = Number(e.prix);\n  const ec = Number(e.ecart);\n\n  if (!isNaN(pe)) totalPoidsEstime += pe;\n  if (!isNaN(pr)) totalPoidsReel += pr;\n  if (!isNaN(px)) totalPrix += px;\n  if (!isNaN(ec)) totalEcart += ec;\n});\n\n// Calcul de la précision globale (%) à partir des totaux\nlet precisionGlobale = null;\nif (totalPoidsReel > 0) {\n  const diff = Math.abs(totalPoidsEstime - totalPoidsReel);\n  precisionGlobale = 100 - (diff / totalPoidsReel) * 100;\n}\n\n// 2. Lignes de la table \"Dernière estimation achat\"\nconst latestRowsHtml = latest.map((e) => {\n  const typeClass = getTypeBadgeClass(e.type_estimation);\n  return `\n    <tr>\n      <td>${escapeHtml(e.date)}</td>\n      <td>${escapeHtml(e.bete || '')}</td>\n      <td class=\"text-right\">${formatInteger(e.poids_estime)}</td>\n      <td>${formatDateTime(e.poids_estime_timestamp)}</td>\n      <td class=\"text-center\">${formatInteger(e.poids_reel)}</td>\n      <td class=\"text-center\">${e.prix == null ? '-' : formatNumber(e.prix, 0) + ' FCFA'}</td>\n      <td class=\"text-center\">${formatInteger(e.ecart)}</td>\n      <td class=\"text-center\">${formatNumber(e.precision)} %</td>\n      <td>\n        <span class=\"badge ${typeClass}\">${escapeHtml(e.type_estimation || '')}</span>\n      </td>\n      <td>${escapeHtml(e.acheteur_nom || '')}</td>\n    </tr>\n  `;\n}).join('');\n\n// Footer HTML – ligne de total avec Précision globale\nconst latestFooterHtml = latest.length === 0 ? '' : `\n  <tfoot>\n    <tr class=\"footer-row\">\n      <td colspan=\"2\" class=\"text-right footer-label\">Total</td>\n      <td class=\"text-right\">${formatInteger(totalPoidsEstime)}</td>\n      <td></td>\n      <td class=\"text-center\">${formatInteger(totalPoidsReel)}</td>\n      <td class=\"text-center\">${totalPrix === 0 ? '-' : formatNumber(totalPrix, 0) + ' FCFA'}</td>\n      <td class=\"text-center\">${formatInteger(totalEcart)}</td>\n      <td class=\"text-center\">\n        ${precisionGlobale === null ? '-' : formatNumber(precisionGlobale) + ' %'}\n      </td>\n      <td colspan=\"2\"></td>\n    </tr>\n  </tfoot>\n`;\n\n// 3. Tableau résumé boeuf/veau\nfunction buildResumeRow(label, data) {\n  if (!data) {\n    return `\n      <tr>\n        <td>${escapeHtml(label)}</td>\n        <td class=\"text-right\">-</td>\n        <td class=\"text-right\">-</td>\n        <td class=\"text-right\">-</td>\n        <td class=\"text-right\">-</td>\n        <td class=\"text-right\">-</td>\n        <td class=\"text-right\">-</td>\n      </tr>\n    `;\n  }\n\n  return `\n    <tr>\n      <td>${escapeHtml(label)}</td>\n      <td class=\"text-right\">${formatInteger(data.total_poids_estime)}</td>\n      <td class=\"text-right\">${formatInteger(data.total_poids_reel)}</td>\n      <td class=\"text-right\">${formatInteger(data.sous_estimation?.total_ecart)}</td>\n      <td class=\"text-right\">${formatNumber(data.sous_estimation?.moyenne_precision)}</td>\n      <td class=\"text-right\">${formatInteger(data.surestimation?.total_ecart)}</td>\n      <td class=\"text-right\">${formatNumber(data.surestimation?.moyenne_precision)}</td>\n    </tr>\n  `;\n}\n\nconst resumeRowsHtml = [\n  buildResumeRow('Bœuf', resume.boeuf),\n  buildResumeRow('Veau', resume.veau),\n].join('');\n\n// 4. Bloc Actualité\nconst actualiteHtml = `\n  <div class=\"card\">\n    <h2>Actualité</h2>\n    <div class=\"subtitle\">\n      Source : ${escapeHtml(actualite.source || '-')}\n      &nbsp;&nbsp;|&nbsp;&nbsp;\n      ${formatDateTime(actualite.timestamp || '')}\n    </div>\n    <p class=\"actualite-text\">\n      ${escapeHtml(actualite.resume || 'Aucune actualité disponible.')}\n    </p>\n  </div>\n`;\n\n// 5. HTML complet\nconst html = `\n<!DOCTYPE html>\n<html lang=\"fr\">\n<head>\n  <meta charset=\"UTF-8\" />\n  <title>Performance estimations achats</title>\n  <style>\n    body {\n      font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Arial, sans-serif;\n      font-size: 13px;\n      color: #1f2933;\n      margin: 0;\n      padding: 16px;\n      background-color: #f5f7fa;\n    }\n    .card {\n      background-color: #ffffff;\n      border-radius: 6px;\n      padding: 16px 20px;\n      margin-bottom: 24px;\n      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);\n    }\n    h2 {\n      margin: 0 0 4px 0;\n      font-size: 16px;\n      font-weight: 600;\n      color: #111827;\n    }\n    .subtitle {\n      font-size: 11px;\n      color: #6b7280;\n      margin-bottom: 12px;\n    }\n    table {\n      width: 100%;\n      border-collapse: collapse;\n      margin-top: 8px;\n    }\n    thead tr {\n      background-color: #f3f4f6;\n    }\n    th, td {\n      padding: 8px 10px;\n      border-bottom: 1px solid #e5e7eb;\n      text-align: left;\n      font-size: 12px;\n    }\n    th {\n      font-weight: 600;\n      color: #374151;\n      white-space: nowrap;\n    }\n    td.text-right {\n      text-align: right;\n      font-variant-numeric: tabular-nums;\n    }\n    td.text-center {\n      text-align: center;\n      font-variant-numeric: tabular-nums;\n    }\n    tr:nth-child(even) td {\n      background-color: #f9fafb;\n    }\n    .badge {\n      display: inline-block;\n      padding: 3px 8px;\n      border-radius: 999px;\n      font-size: 11px;\n      font-weight: 600;\n      color: #fff;\n      text-align: center;\n      min-width: 80px;\n    }\n    .badge-good {\n      background-color: #16a34a;\n    }\n    .badge-warn {\n      background-color: #f97316;\n    }\n    .badge-bad {\n      background-color: #dc2626;\n    }\n    .badge-neutral {\n      background-color: #6b7280;\n    }\n    .actualite-text {\n      margin-top: 4px;\n      font-size: 13px;\n      line-height: 1.5;\n      color: #111827;\n      white-space: pre-line;\n    }\n    tfoot .footer-row {\n      background-color: #e5e7eb;\n      font-weight: 600;\n    }\n    .footer-label {\n      font-weight: 600;\n    }\n  </style>\n</head>\n<body>\n\n  <!-- Bloc Dernière estimation achat -->\n  <div class=\"card\">\n    <h2>Dernière estimation achat</h2>\n    <div class=\"subtitle\">\n      Période : ${escapeHtml(periode.startDate || '')} → ${escapeHtml(periode.endDate || '')}\n    </div>\n    <table>\n      <thead>\n        <tr>\n          <th>Date</th>\n          <th>Bête</th>\n          <th>Poids estimé (kg)</th>\n          <th>Horodatage estimation</th>\n          <th>Poids réel (kg)</th>\n          <th>Prix</th>\n          <th>Écart (kg)</th>\n          <th>Précision (%)</th>\n          <th>Type d’estimation</th>\n          <th>Acheteur</th>\n        </tr>\n      </thead>\n      ${latestFooterHtml}\n      <tbody>\n        ${latestRowsHtml || '<tr><td colspan=\"10\">Aucune estimation disponible.</td></tr>'}\n      </tbody>\n    </table>\n  </div>\n\n  <!-- Bloc Résumé -->\n  <div class=\"card\">\n    <h2>Résumé des performances</h2>\n    <div class=\"subtitle\">\n      Synthèse par type de bête (poids estimés / réels et précisions, sous- &amp; sur-estimations)\n    </div>\n    <table>\n      <thead>\n        <tr>\n          <th>Type</th>\n          <th>Total poids estimé (kg)</th>\n          <th>Total poids réel (kg)</th>\n          <th>Sous-estimation – total écart (kg)</th>\n          <th>Sous-estimation – moy. précision (%)</th>\n          <th>Surestimation – total écart (kg)</th>\n          <th>Surestimation – moy. précision (%)</th>\n        </tr>\n      </thead>\n      <tbody>\n        ${resumeRowsHtml}\n      </tbody>\n    </table>\n  </div>\n\n  <!-- Bloc Actualité -->\n  ${actualiteHtml}\n\n</body>\n</html>\n`;\n\n// Retour pour n8n\nreturn [\n  {\n    json: {\n      html,\n    },\n  },\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2096,
+        480
+      ],
+      "id": "8e5615a1-84ef-4d00-9a63-9d33ee05f7fd",
+      "name": "Perf Achat Format"
+    },
+    {
+      "parameters": {
+        "url": "https://mata-depenses-management.onrender.com/external/api/virement",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "startDate",
+              "value": "={{ $items('Code0')[0].json.yest.split(/[\\/.-]/).reverse().join('-') }}"
+            },
+            {
+              "name": "endDate",
+              "value": "={{ $items('Code0')[0].json.yest.split(/[\\/.-]/).reverse().join('-') }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-api-key",
+              "value": "4f8d9a2b6c7e8f1a3b5c9d0e2f4g6h7i"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        -80
+      ],
+      "id": "b72bfa56-ce08-4698-a6d3-474669a2be4e",
+      "name": "Get Virement MataBanq",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code node\n// Input : items[0].json.details (object) OR items[0].json[0].details (array wrapper)\n// Output: items[0].json.output_html (string)\n\nfunction escapeHtml(s) {\n  return String(s ?? '')\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;');\n}\n\nfunction round2(n) {\n  const v = Number(n);\n  if (!isFinite(v)) return '0.00';\n  return v.toFixed(2);\n}\n\nfunction formatFCFA(n) {\n  const v = Number(n);\n  const intVal = isFinite(v) ? Math.round(v) : 0;\n  const s = String(intVal).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ' ');\n  return `${s} FCFA`;\n}\n\nfunction computeDiffPct(theo, reel) {\n  const t = Number(theo);\n  const r = Number(reel);\n  const T = isFinite(t) ? t : 0;\n  const R = isFinite(r) ? r : 0;\n  const denom = Math.max(1, T);\n  const diff = T - R;\n  return (Math.abs(diff) / denom) * 100;\n}\n\nfunction computeNiveauFromDiffPct(diffPct) {\n  const v = Number(diffPct);\n  if (!isFinite(v)) return 'OK';\n  if (v > 10) return 'Anomalie';\n  if (v > 5) return 'À surveiller';\n  return 'OK';\n}\n\nfunction getBadge(label) {\n  const l = (label || '').toLowerCase();\n  let bg = '#eaf7ee', bd = '#bfe6ca', fg = '#0c6b2d';\n  if (l.includes('anomalie')) { bg = '#ffe3e3'; bd = '#ffb3b3'; fg = '#8a0000'; }\n  else if (l.includes('surveiller')) { bg = '#fff3d6'; bd = '#ffd79a'; fg = '#8a5a00'; }\n\n  return `<span style=\"display:inline-block;padding:2px 10px;border-radius:999px;font-weight:700;font-size:12px;border:1px solid ${bd};background:${bg};color:${fg};white-space:nowrap;\">\n    ${escapeHtml(label)}\n  </span>`;\n}\n\nfunction getDetailsFromItem(itemJson) {\n  if (itemJson?.details && typeof itemJson.details === 'object') return itemJson.details;\n  if (Array.isArray(itemJson) && itemJson[0]?.details) return itemJson[0].details;\n  return null;\n}\n\n/** ✅ NOUVEAU: agrège Boeuf+Veau+Mergez+Viande hachée */\nfunction sumFam(pvObj, famNames, field) {\n  return famNames.reduce((acc, fam) => acc + Number(pvObj?.[fam]?.[field] ?? 0), 0);\n}\n\nfunction buildSyntheseRows(details) {\n  const excluded = new Set(['Abattage', 'Chambre froide', 'Linguere', 'Dahra']);\n  const pvNames = Object.keys(details).filter(pv => !excluded.has(pv));\n\n  const rows = [];\n  for (const pv of pvNames) {\n    const pvObj = details[pv] || {};\n\n    // ✅ Boeuf+Veau (+ Mergez + Viande hachée)\n    const BV_EXTRA = ['Boeuf', 'Veau', 'Mergez', 'Viande hachée'];\n    const theoBV = sumFam(pvObj, BV_EXTRA, 'ventesTheoriquesNombre');\n    const reelBV = sumFam(pvObj, BV_EXTRA, 'ventesNombreAjustePack');\n\n    const ecartBV = theoBV - reelBV;\n    const diffPctBV = computeDiffPct(theoBV, reelBV);\n    const nivBV = computeNiveauFromDiffPct(diffPctBV);\n\n    rows.push({ pv, fam: 'Boeuf+Veau', theo: theoBV, reel: reelBV, ecart: ecartBV, diffPct: diffPctBV, niveau: nivBV });\n\n    // Agneau / Poulet / Poisson\n    for (const fam of ['Agneau', 'Poulet', 'Poisson']) {\n      const x = pvObj[fam] || {};\n      const theo = x.ventesTheoriquesNombre || 0;\n      const reel = x.ventesNombreAjustePack || 0;\n      const ecart = theo - reel;\n      const diffPct = computeDiffPct(theo, reel);\n      const niveau = computeNiveauFromDiffPct(diffPct);\n\n      rows.push({ pv, fam, theo, reel, ecart, diffPct, niveau });\n    }\n  }\n  return rows;\n}\n\nfunction buildSyntheseHTML(rows) {\n  const headerCells = ['Point de vente','Famille','Théorique','Réel ajusté','Écart','diffPct','Niveau']\n    .map(x => `<th style=\"border:1px solid #e6e6e6;padding:8px;background:#f7f7f7;text-align:left\">${escapeHtml(x)}</th>`)\n    .join('');\n\n  const body = rows.map(r => {\n    const isWatch = r.niveau === 'À surveiller';\n    const trStyle = isWatch ? 'font-weight:700;color:#b00020;' : '';\n\n    return `\n      <tr style=\"${trStyle}\">\n        <td style=\"border:1px solid #e6e6e6;padding:8px\">${escapeHtml(r.pv)}</td>\n        <td style=\"border:1px solid #e6e6e6;padding:8px\">${escapeHtml(r.fam)}</td>\n        <td style=\"border:1px solid #e6e6e6;padding:8px\">${round2(r.theo)}</td>\n        <td style=\"border:1px solid #e6e6e6;padding:8px\">${round2(r.reel)}</td>\n        <td style=\"border:1px solid #e6e6e6;padding:8px\">${round2(r.ecart)}</td>\n        <td style=\"border:1px solid #e6e6e6;padding:8px\">${round2(r.diffPct)}%</td>\n        <td style=\"border:1px solid #e6e6e6;padding:8px\">${getBadge(r.niveau)}</td>\n      </tr>\n    `;\n  }).join('');\n\n  return `\n  <table style=\"width:100%;border-collapse:collapse;font-size:13px\">\n    <thead><tr>${headerCells}</tr></thead>\n    <tbody>${body}</tbody>\n  </table>`;\n}\n\nfunction buildAbattoirFromDetails(details) {\n  const abat = details['Abattage'] || {};\n  const abatsValeur = Number(abat?.Abats?.ventesValeur ?? 0);\n  const peauxValeur = Number(abat?.Peaux?.ventesValeur ?? 0);\n  const ventesAbatsPeaux = abatsValeur + peauxValeur;\n\n  const boeufKg = Number(abat?.Boeuf?.ventesTheoriquesNombre ?? 0);\n  const veauKg  = Number(abat?.Veau?.ventesTheoriquesNombre ?? 0);\n\n  return { ventesAbatsPeaux, boeufKg, veauKg };\n}\n\nfunction buildAbattoirTable(a) {\n  return `\n  <table style=\"width:100%;border-collapse:collapse;font-size:13px;margin-top:10px\">\n    <thead>\n      <tr>\n        ${['Source','Indicateur','Valeur']\n          .map(x => `<th style=\"border:1px solid #e6e6e6;padding:8px;background:#f7f7f7;text-align:left\">${escapeHtml(x)}</th>`)\n          .join('')}\n      </tr>\n    </thead>\n    <tbody>\n      <tr>\n        <td style=\"border:1px solid #e6e6e6;padding:8px\"><b>Abattage</b></td>\n        <td style=\"border:1px solid #e6e6e6;padding:8px\">Ventes abats + peaux</td>\n        <td style=\"border:1px solid #e6e6e6;padding:8px\">${escapeHtml(formatFCFA(a.ventesAbatsPeaux))}</td>\n      </tr>\n      <tr>\n        <td style=\"border:1px solid #e6e6e6;padding:8px\"><b>Abattage</b></td>\n        <td style=\"border:1px solid #e6e6e6;padding:8px\">Pertes de poids – Boeuf</td>\n        <td style=\"border:1px solid #e6e6e6;padding:8px\">${round2(a.boeufKg)} kg</td>\n      </tr>\n      <tr>\n        <td style=\"border:1px solid #e6e6e6;padding:8px\"><b>Abattage</b></td>\n        <td style=\"border:1px solid #e6e6e6;padding:8px\">Pertes de poids – Veau</td>\n        <td style=\"border:1px solid #e6e6e6;padding:8px\">${round2(a.veauKg)} kg</td>\n      </tr>\n    </tbody>\n  </table>`;\n}\n\n// ---------------- MAIN ----------------\nconst itemJson = items[0]?.json;\nconst details = getDetailsFromItem(itemJson);\n\nif (!details) {\n  return [{\n    json: {\n      ...itemJson,\n      output_html: `<div style=\"font-family:Arial;color:#8a0000;font-weight:700\">\n        Champ \"details\" introuvable dans le JSON d'entrée.\n      </div>`\n    }\n  }];\n}\n\nconst synthRows = buildSyntheseRows(details);\nconst synthHtml = buildSyntheseHTML(synthRows);\n\nconst abattoir = buildAbattoirFromDetails(details);\nconst abattoirHtml = buildAbattoirTable(abattoir);\n\nconst output_html = `\n<div style=\"font-family:Arial,Helvetica,sans-serif;max-width:980px;color:#111\">\n  <div style=\"font-size:16px;font-weight:700;margin:0 0 10px\">Synthèse finale – Tableau</div>\n  ${synthHtml}\n\n  <div style=\"font-size:14px;font-weight:700;margin:14px 0 8px\">Abattoir</div>\n  ${abattoirHtml}\n</div>\n`;\n\nreturn [{\n  json: {\n    ...itemJson,\n    output_html\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        1136
+      ],
+      "id": "6006834f-876d-4db1-9039-b71833eec0fb",
+      "name": "llm formatting"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * n8n Code node (JavaScript)\n * Objectif : construire un JSON unique qui regroupe tes blocs HTML/TEXT\n * (VENTE, ESTIMATION, VOLAILLE, etc.) pour l’envoyer ensuite à ton agent.\n *\n * À utiliser dans un Code node placé APRÈS les nodes cités.\n */\n\nconst vente = $('Rapport').item.json.text ?? '';\nconst estimation = $('Format estimation').item.json.text ?? '';\nconst volaille = $('Format Volaille').item.json.text ?? '';\nconst perfAchatBovin = $('Perf Achat Format').item.json.text ?? '';\nconst prixBoeuf = $('Boeuf prix').item.json.text ?? '';\nconst depenses = $('Format Depenses').item.json.text ?? '';\nconst chambreFroide = $('Get Chambre froide').item.json.text ?? '';\nconst dateDebutMois = $('mlc').item.json.date ?? '';\nconst ecartStockVsVentesMois = $json.details ?? '';\n\nreturn [\n  {\n    json: {\n      sections: {\n        VENTE: vente,\n        ESTIMATION: estimation,\n        VOLAILLE: volaille,\n        \"PERFORMANCE ACHAT BOVIN\": perfAchatBovin,\n        \"PRIX BOEUF\": prixBoeuf,\n        DEPENSES: depenses,\n        \"CHAMBRE FROIDE\": chambreFroide,\n        [`ECART STOCK VS VENTES DU MOIS (DEBUT DE MOIS - ${dateDebutMois})`]:\n          ecartStockVsVentesMois,\n      },\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1712,
+        944
+      ],
+      "id": "3baa4282-1376-4f45-aa32-fb641102014b",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * n8n Code node (JavaScript)\n * Version avec extraction du Prix/kg BOEUF\n */\n\nconst items = $input.all();\nif (!items.length) return [];\n\nconst sections = items[0].json.sections;\nconst out = {\n  date: \"\",\n  ventes: {},\n  achats_boeuf: {\n    details_jour: [],\n    alerte_prix: false\n  },\n  alerts_pv: [],\n  stock_alerts: [],\n  abattoir: {}\n};\n\n// --- 1. EXTRACTION PRIX BOEUF (Nouveau) ---\nconst htmlPrix = sections[\"PRIX BOEUF\"] || \"\";\n\n// Extraction du \"Prix/kg sans abats\" dans le tableau Détails\n// On cherche les lignes du tableau qui ne sont pas vides\nconst achatRows = htmlPrix.matchAll(/<tr><td.*?>(.*?)<\\/td><td.*?>(.*?)<\\/td><td.*?>(.*?)<\\/td><td.*?>(.*?)<\\/td><td.*?>(.*?)<\\/td><td.*?>(.*?)<\\/td>/g);\n\nfor (const match of achatRows) {\n  const [_, date, bete, prixTotal, abats, kg, prixKg] = match;\n  if (bete !== \"—\" && bete.toLowerCase().includes(\"boeuf\")) {\n    out.achats_boeuf.details_jour.push({\n      bete: bete.trim(),\n      kg: cleanValue(kg),\n      prix_kg_sans_abats: cleanValue(prixKg)\n    });\n  }\n}\n\n// Détection de l'alerte prix (Statut \"Mauvais\" en rouge)\nif (htmlPrix.includes(\"background:#dc2626\") && htmlPrix.includes(\"Mauvais\")) {\n  out.achats_boeuf.alerte_prix = true;\n}\n\n// --- 2. RESTES DES EXTRACTIONS (Vente, Stock, Abattoir) ---\nconst htmlVente = sections[\"VENTE\"] || \"\";\nconst dateMatch = htmlVente.match(/Date d'analyse : <strong>(.*?)<\\/strong>/);\nout.date = dateMatch ? dateMatch[1] : \"\";\n\n// Extraction Ventes\nconst salesMatch = htmlVente.match(/Vente du jour \\(saisies\\) :.*?color:#1E8449.*?>(.*?) FCFA/s);\nout.ventes.jour = salesMatch ? cleanValue(salesMatch[1]) : 0;\n\n// Extraction Abattoir\nconst htmlStock = sections[\"ECART STOCK VS VENTES DU MOIS (DEBUT DE MOIS - 2026-02-05)\"] || \"\";\nconst abatsPeauxMatch = htmlStock.match(/Ventes abats \\+ peaux.*?>(.*?) FCFA/s);\nout.abattoir.abats_peaux = abatsPeauxMatch ? abatsPeauxMatch[1].trim() : \"0 FCFA\";\n\n// Nettoyage final des valeurs numériques\nfunction cleanValue(str) {\n  if (!str) return 0;\n  return parseFloat(str.replace(/\\s/g, '').replace(/&nbsp;/g, '').replace(/[^0-9.-]+/g, '')) || 0;\n}\n\nreturn [{ json: out }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        944
+      ],
+      "id": "759834d6-7bee-45fa-b4fb-2dddd5530769",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "url": "https://mata-lgzy.onrender.com/api/external/reconciliation/aggregated",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "startDate",
+              "value": "={{ new Date(new Date().getFullYear(), new Date().getMonth(), 0).toLocaleDateString('fr-FR').replace(/\\//g, '-') }}"
+            },
+            {
+              "name": "endDate",
+              "value": "={{ new Date(new Date().getFullYear(), new Date().getMonth(), 1).toLocaleDateString('fr-FR').replace(/\\//g, '-') }}"
+            },
+            {
+              "name": "llm",
+              "value": "true"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "b326e72b67a9b508c88270b9954c5ca1"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        816,
+        1136
+      ],
+      "id": "21da8a54-1bc1-4c46-bb69-3e3fb3f37869",
+      "name": "Get mtd var"
+    },
+    {
+      "parameters": {
+        "path": "mata-rapport-today",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -592,
+        656
+      ],
+      "id": "ec6ce304-9559-4667-9b99-0cee0308a3d0",
+      "name": "Webhook",
+      "webhookId": "6330593e-1d87-4f12-91bc-3b8b6be01357"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=<!doctype html><html><head><meta charset=\"utf-8\"><title>Rapport MATA AS-OF {{ $('Code0').first().json.targetDate }}</title></head><body style=\"margin:0;padding:0;background:#F8FAFC;\"><div style=\"max-width:1200px;margin:0 auto;padding:12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0F172A;\"><div style=\"font-size:20px;font-weight:800;margin-bottom:8px;\">Rapport MATA — AS-OF {{ $('Code0').first().json.targetDate }}</div><div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;margin:20px 0;\">1. VENTES</div>\n{{ $('Rapport').item.json.html }}\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;margin:20px 0;\">2. ESTIMATION</div>\n{{ $('Format estimation').item.json.html }}\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;margin:20px 0;\">3. VOLAILLE</div>\n{{ $('Format Volaille').item.json.html }}\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;margin:20px 0;\">4. PERFORMANCE ACHAT BOVIN</div>\n{{ $('Perf Achat Format').item.json.html }}\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;margin:20px 0;\">5. PRIX BOEUF</div>\n{{ $('Boeuf prix').item.json.html }}\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;margin:20px 0;\">6. DEPENSES DU JOUR</div>\n{{ $('Format Depenses').item.json.html }}\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;margin:20px 0;\">7. CHAMBRE FROIDE</div>\n{{ $('Get Chambre froide').item.json.text }}\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;margin:20px 0;\">8. ECART STOCK VS VENTES DU MOIS (DEBUT DE MOIS - {{ $('mlc').item.json.date }})</div>\n{{ $('llm formatting').item.json.output_html }}\n</div></body></html>",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1440,
+        1312
+      ],
+      "id": "11e987b6-498b-4347-9a12-6ff8314d14bd",
+      "name": "Respond to Webhook"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Rapport": {
+      "main": [
+        [
+          {
+            "node": "PastDateVenteTherique",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Rec from matix": {
+      "main": [
+        [
+          {
+            "node": "Get stock Volaille",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Get Rec from matix2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Rec from matix2": {
+      "main": [
+        [
+          {
+            "node": "Get Creance MataBanq",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PastDateVenteTherique": {
+      "main": [
+        [
+          {
+            "node": "FormattingPerDatePerPO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FormattingPerDatePerPO": {
+      "main": [
+        [
+          {
+            "node": "FormatBeforeMail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FormatBeforeMail": {
+      "main": [
+        [
+          {
+            "node": "Get mtd var",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Creance MataBanq": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Get Rec from matix",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code0": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get stock Volaille": {
+      "main": [
+        [
+          {
+            "node": "Format Volaille",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Volaille": {
+      "main": [
+        [
+          {
+            "node": "Get Boeuf prix from matix1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        []
+      ]
+    },
+    "Get Boeuf prix from matix1": {
+      "main": [
+        [
+          {
+            "node": "Boeuf prix",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Boeuf prix": {
+      "main": [
+        [
+          {
+            "node": "Get Virement MataBanq",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Depenses": {
+      "main": [
+        [
+          {
+            "node": "Format Depenses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Depenses": {
+      "main": [
+        [
+          {
+            "node": "Get all amount http",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get all amount http": {
+      "main": [
+        [
+          {
+            "node": "format amount",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format amount": {
+      "main": [
+        [
+          {
+            "node": "Get estimations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get balance": {
+      "main": [
+        [
+          {
+            "node": "Get analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get estimations": {
+      "main": [
+        [
+          {
+            "node": "Format estimation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format estimation": {
+      "main": [
+        [
+          {
+            "node": "Get Rec from matix for CF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Chambre froide": {
+      "main": [
+        [
+          {
+            "node": "Get balance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Rec from matix for CF": {
+      "main": [
+        [
+          {
+            "node": "Get Chambre froide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get analytics": {
+      "main": [
+        [
+          {
+            "node": "mlc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mlc": {
+      "main": [
+        [
+          {
+            "node": "point de vente status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "point de vente status": {
+      "main": [
+        [
+          {
+            "node": "Perf Achat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perf Achat": {
+      "main": [
+        [
+          {
+            "node": "Perf Achat Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perf Achat Format": {
+      "main": [
+        [
+          {
+            "node": "Rapport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Virement MataBanq": {
+      "main": [
+        [
+          {
+            "node": "Get Depenses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "llm formatting": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get mtd var": {
+      "main": [
+        [
+          {
+            "node": "llm formatting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code0",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "f510bb61-7f07-4034-b0cb-40d965c32a60",
+  "meta": {
+    "instanceId": "82f23e971ae5c642c457163e4e62aec1113d609a56d1d03ed9bfbe1a35390e01"
+  },
+  "id": "CQYipPxM0LbZcqkS",
+  "tags": []
+}

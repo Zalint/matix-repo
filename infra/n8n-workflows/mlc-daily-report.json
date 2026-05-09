@@ -1,0 +1,257 @@
+{
+  "name": "MLC N8N GMAIL V2",
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "84197897-fae0-4f96-a248-bef4a25dd76e",
+              "name": "date",
+              "value": "={{ \n  (() => {\n    const date = new Date();\n    date.setDate(date.getDate() - 1);\n    const dd = ('0' + date.getDate()).slice(-2);\n    const mm = ('0' + (date.getMonth() + 1)).slice(-2);\n    const yyyy = date.getFullYear();\n    return `${yyyy}-${mm}-${dd}`;\n  })() \n}}",
+              "type": "string"
+            },
+            {
+              "id": "f0336f09-0685-4f5c-9f87-f49398092bb1",
+              "name": "month",
+              "value": "={{ \n  (() => {\n    const date = new Date();\n    date.setDate(date.getDate() - 1); // recule d'un jour\n    const mm = ('0' + (date.getMonth() + 1)).slice(-2); // mois sur deux chiffres\n    const yyyy = date.getFullYear();\n    return `${yyyy}-${mm}`;\n  })()\n}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -944,
+        -288
+      ],
+      "id": "052b6d93-1c2e-47b3-a673-a38059282e61",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 4,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -1136,
+        -288
+      ],
+      "id": "bea73c8a-63d2-4fdc-b1f9-9b4b63b45895",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://matix-livreur-backend.onrender.com/api/external/mlc/livreurStats/daily",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ $json.date }}"
+            },
+            {
+              "name": "seuilMataPanier",
+              "value": "7401"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -624,
+        -288
+      ],
+      "id": "77b761e2-2a07-4b5b-be3e-b02d31d8de0e",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "/* ===============================================================\n   n8n Function node – Rapport quotidien MLC / MATA\n   Sorties : \n     - rapport (texte brut, identique à votre format actuel)\n     - rapport_html (HTML responsive)\n   =============================================================== */\n\n/* 1. Récupération de l’objet jour ───────────────────────────── */\nlet day = items[0].json;\nif (Array.isArray(day)) day = day[0];\n\n/* 2. Vérification minimale */\nif (!day?.summary || !day?.classement || !day?.details) {\n  throw new Error('Le JSON ne contient pas summary / classement / details.');\n}\n\n/* 3. Petites fonctions utiles */\nconst fcfa   = v => `${Number(v || 0).toLocaleString('fr-FR')} FCFA`;\nconst frDate = iso => { if (!iso) return ''; const [y,m,d] = iso.split('-'); return `${d}/${m}/${y}`; };\nconst line   = len => '—'.repeat(len); // séparateur\nconst esc    = s => String(s ?? '').replace(/[&<>\"]/g, t => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[t]));\n\n/* 4. Pré-calculs globaux ───────────────────────────────────── */\nconst { summary, classement, details } = day;\nconst revenus   = (classement || []).reduce((s,l)=>s+(l.revenus || 0), 0);\nconst depenses  = summary?.depenses?.total || 0;\nconst benefNet  = revenus - depenses;\n\n/*** Panier moyen & total (MATA) ***/\nconst panierMoyen = summary?.courses_mata?.panier_moyen ?? 0;\nconst panierTotal = summary?.courses_mata?.panier_total_jour ?? 0;\n\n/* === NOUVEAU BLOC : Courses internes par point de vente ===== */\nconst internesPV = (summary?.courses_mata?.par_point_vente || [])\n  .filter(pv => (pv?.nombre_courses_internes || 0) > 0)\n  .map(pv => `• ${pv.point_de_vente} : ${pv.nombre_courses_internes} interne${pv.nombre_courses_internes>1?'s':''}`)\n  .join('\\n');\n\n/* 4-1  RÉSUMÉ (texte brut) ----------------------------------- */\nconst bloc1 = [\n  `${line(60)}`,\n  `📊  RÉSUMÉ – ${frDate(day.date)}`,\n  `${line(60)}`,\n  `${summary?.total_courses || 0} courses au total`,\n  `Panier moyen  : ${fcfa(panierMoyen)}`,\n  `Panier total  : ${fcfa(panierTotal)}`,\n  `Dépenses      : ${fcfa(depenses)}`,\n  `Revenus       : ${fcfa(revenus)}`,\n  `Bénéfice      : ${fcfa(benefNet)}`,\n  ''\n].join('\\n');\n\nconst blocInternes = internesPV\n  ? [\n      `${line(60)}`,\n      `🏠  COURSES INTERNES (MATA)`,\n      `${line(60)}`,\n      internesPV,\n      ''\n    ].join('\\n')\n  : '';\n\n/* 4-2  CLASSEMENT (texte brut) ------------------------------- */\nconst rangEmoji = ['🥇','🥈','🥉'];\nconst bloc2Lines = [...(classement || [])]\n  .sort((a,b)=> (b?.benefice||0) - (a?.benefice||0))\n  .map((l,i)=>{\n    const badge = rangEmoji[i] ?? '▪️';\n    return `${badge}  ${l.livreur_nom} — ${l.total_courses} course(s)\\n` +\n           `    Revenus  ${fcfa(l.revenus)} | Dépenses  ${fcfa(l.depenses_totales)} | Bénéfice  ${fcfa(l.benefice)}`;\n  });\nconst bloc2 = [\n  `${line(60)}`,\n  `🚚  CLASSEMENT DES LIVREURS`,\n  `${line(60)}`,\n  bloc2Lines.join('\\n\\n') || 'Aucune donnée.',\n  ''\n].join('\\n');\n\n/* 4-3  ANALYSE DES SEUILS (texte brut) ----------------------- */\nconst paniersLow = summary?.courses_mata?.panier_inf_seuil ?? 0;\nconst zonesLow   = summary?.courses_mlc?.sans_abonnement?.par_zone?.zone1_1750 ?? 0;\nconst bloc3 = [\n  `${line(60)}`,\n  `🧐  ANALYSE DES SEUILS`,\n  `${line(60)}`,\n  `• Paniers MATA < ${fcfa(day.seuil_mata_panier)} : ${paniersLow}`,\n  `• Courses MLC < ${fcfa(day.seuil_mlc)} : ${zonesLow || '0'} anomalie(s)`,\n  ''\n].join('\\n');\n\n/* 4-4  GÉOGRAPHIE (texte brut) ------------------------------- */\nconst geo = (summary?.courses_mata?.par_point_vente || [])\n  .map(pv=>`• ${pv.point_de_vente} : ${pv.nombre_courses} course${pv.nombre_courses>1?'s':''}`)\n  .join('\\n');\nconst bloc4 = [\n  `${line(60)}`,\n  `📍  RÉPARTITION GÉOGRAPHIQUE (MATA)`,\n  `${line(60)}`,\n  geo || 'Aucune donnée.',\n  ''\n].join('\\n');\n\n/* 4-5  DÉPENSES DÉTAILLÉES (texte brut) ---------------------- */\nconst depLines = (details || [])\n  .filter(d=> (d.total_courses||0)>0 || (d?.depenses?.total||0)>0)\n  .map(d =>\n`${d.livreur_nom}\\n   ⛽ ${fcfa(d?.depenses?.carburant)}  |  🚔 ${fcfa(d?.depenses?.police)}  |  🔧 ${fcfa(d?.depenses?.reparations)}  |  💸 Total ${fcfa(d?.depenses?.total)}`);\nconst bloc5 = [\n  `${line(60)}`,\n  `💸  DÉPENSES DÉTAILLÉES`,\n  `${line(60)}`,\n  depLines.join('\\n\\n') || 'Aucune dépense.',\n  ''\n].join('\\n');\n\n/* 4-6  RÉPARTITION DES TYPES (texte brut) -------------------- */\nconst mlc    = summary?.courses_mlc || {};\nconst autres = summary?.courses_autre || { nombre: 0, prix_total: 0 };\nconst z      = mlc?.sans_abonnement?.par_zone || {};\nconst bloc6 = [\n  `${line(60)}`,\n  `🔖  RÉPARTITION DES TYPES DE COURSES`,\n  `${line(60)}`,\n  `• Avec abonnement    : ${mlc?.avec_abonnement?.total ?? 0}  (extras : ${mlc?.avec_abonnement?.nombre_extras ?? 0})`,\n  `• Sans abonnement    : ${mlc?.sans_abonnement?.total ?? 0}`,\n  `     - Zone 1 : ${z.zone1_1750 ?? 0} | Zone 2 : ${z.zone2_2000 ?? 0} | Zone 3 : ${z.zone3_3000 ?? 0} | Autre : ${z.autre ?? 0}`,\n  `• Autres             : ${autres?.nombre ?? 0}  |  Montant ${fcfa(autres?.prix_total ?? 0)}`,\n  ''\n].join('\\n');\n\n/* 5. Rapport final (texte brut) ------------------------------ */\nconst rapport = bloc1 + blocInternes + bloc2 + bloc3 + bloc4 + bloc5 + bloc6;\n\n/* =========================\n   VERSION HTML RESPONSIVE\n   ========================= */\n\nconst css = `\n  .wrap { font-family: Arial, Helvetica, sans-serif; color:#0f172a; }\n  h2 { margin:0 0 8px 0; font-size:18px; }\n  h3 { margin:18px 0 8px 0; font-size:16px; }\n  .card { border:1px solid #e5e7eb; border-radius:12px; padding:12px; margin:8px 0; background:#ffffff; }\n  .muted { color:#475569; }\n  .kpi { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:8px; }\n  .kpi .item { padding:8px; border:1px solid #e5e7eb; border-radius:10px; }\n  table { width:100%; border-collapse:collapse; }\n  th, td { padding:8px; border:1px solid #e5e7eb; vertical-align:top; }\n  th { background:#f8fafc; text-align:left; }\n  .right { text-align:right; }\n  .small { font-size:12px; }\n  @media (max-width:600px) {\n    .kpi { grid-template-columns: 1fr; }\n    table { font-size:12px; }\n    th, td { padding:6px; }\n  }\n`;\n\n/* Résumé HTML */\nconst htmlResume = `\n  <div class=\"card\">\n    <h2>📊 RÉSUMÉ – ${esc(frDate(day.date))}</h2>\n    <div class=\"kpi\">\n      <div class=\"item\"><div class=\"muted small\">Courses (total)</div><div><strong>${esc(summary?.total_courses ?? 0)}</strong></div></div>\n      <div class=\"item\"><div class=\"muted small\">Panier moyen</div><div><strong>${esc(fcfa(panierMoyen))}</strong></div></div>\n      <div class=\"item\"><div class=\"muted small\">Panier total</div><div><strong>${esc(fcfa(panierTotal))}</strong></div></div>\n      <div class=\"item\"><div class=\"muted small\">Dépenses</div><div><strong>${esc(fcfa(depenses))}</strong></div></div>\n      <div class=\"item\"><div class=\"muted small\">Revenus</div><div><strong>${esc(fcfa(revenus))}</strong></div></div>\n      <div class=\"item\"><div class=\"muted small\">Bénéfice</div><div><strong>${esc(fcfa(benefNet))}</strong></div></div>\n    </div>\n  </div>\n`;\n\n/* Courses internes HTML */\nconst htmlInternes = (internesPV)\n  ? `\n  <div class=\"card\">\n    <h3>🏠 COURSES INTERNES (MATA)</h3>\n    <pre class=\"small\" style=\"white-space:pre-wrap; margin:0;\">${esc(internesPV)}</pre>\n  </div>`\n  : '';\n\n/* Classement HTML */\nconst classementSorted = [...(classement || [])].sort((a,b)=> (b?.benefice||0) - (a?.benefice||0));\nconst htmlClassementRows = classementSorted.map((l,i)=>`\n  <tr>\n    <td>${esc((['🥇','🥈','🥉'][i] ?? '▪️'))}</td>\n    <td>${esc(l?.livreur_nom ?? '')}</td>\n    <td class=\"right\">${esc(l?.total_courses ?? 0)}</td>\n    <td class=\"right\">${esc(fcfa(l?.revenus ?? 0))}</td>\n    <td class=\"right\">${esc(fcfa(l?.depenses_totales ?? 0))}</td>\n    <td class=\"right\"><strong>${esc(fcfa(l?.benefice ?? 0))}</strong></td>\n  </tr>\n`).join('');\n\nconst htmlClassement = `\n  <div class=\"card\">\n    <h3>🚚 CLASSEMENT DES LIVREURS</h3>\n    <table>\n      <thead><tr>\n        <th>#</th><th>Livreur</th><th class=\"right\">Courses</th><th class=\"right\">Revenus</th><th class=\"right\">Dépenses</th><th class=\"right\">Bénéfice</th>\n      </tr></thead>\n      <tbody>\n        ${htmlClassementRows || `<tr><td colspan=\"6\" class=\"small muted\">Aucune donnée.</td></tr>`}\n      </tbody>\n    </table>\n  </div>\n`;\n\n/* Analyse des seuils HTML */\nconst htmlSeuils = `\n  <div class=\"card\">\n    <h3>🧐 ANALYSE DES SEUILS</h3>\n    <ul class=\"small\" style=\"margin:0; padding-left:18px;\">\n      <li>Paniers MATA &lt; ${esc(fcfa(day.seuil_mata_panier))} : <strong>${esc(paniersLow)}</strong></li>\n      <li>Courses MLC &lt; ${esc(fcfa(day.seuil_mlc))} : <strong>${esc(zonesLow || 0)}</strong> anomalie(s)</li>\n    </ul>\n  </div>\n`;\n\n/* Répartition géographique HTML */\nconst geoList = (summary?.courses_mata?.par_point_vente || [])\n  .map(pv=>`<li>${esc(pv.point_de_vente)} : <strong>${esc(pv.nombre_courses)}</strong> course${pv.nombre_courses>1?'s':''}</li>`)\n  .join('');\nconst htmlGeo = `\n  <div class=\"card\">\n    <h3>📍 RÉPARTITION GÉOGRAPHIQUE (MATA)</h3>\n    <ul class=\"small\" style=\"margin:0; padding-left:18px;\">\n      ${geoList || `<li class=\"muted\">Aucune donnée.</li>`}\n    </ul>\n  </div>\n`;\n\n/* Dépenses détaillées HTML */\nconst depRows = (details || [])\n  .filter(d => (d?.total_courses||0)>0 || (d?.depenses?.total||0)>0)\n  .map(d => `\n    <tr>\n      <td>${esc(d?.livreur_nom ?? '')}</td>\n      <td class=\"right\">${esc(fcfa(d?.depenses?.carburant ?? 0))}</td>\n      <td class=\"right\">${esc(fcfa(d?.depenses?.police ?? 0))}</td>\n      <td class=\"right\">${esc(fcfa(d?.depenses?.reparations ?? 0))}</td>\n      <td class=\"right\"><strong>${esc(fcfa(d?.depenses?.total ?? 0))}</strong></td>\n    </tr>\n  `).join('');\nconst htmlDep = `\n  <div class=\"card\">\n    <h3>💸 DÉPENSES DÉTAILLÉES</h3>\n    <table>\n      <thead><tr>\n        <th>Livreur</th><th class=\"right\">Carburant</th><th class=\"right\">Police</th><th class=\"right\">Réparations</th><th class=\"right\">Total</th>\n      </tr></thead>\n      <tbody>${depRows || `<tr><td colspan=\"5\" class=\"small muted\">Aucune dépense.</td></tr>`}</tbody>\n    </table>\n  </div>\n`;\n\n/* Répartition des types HTML */\nconst htmlTypes = `\n  <div class=\"card\">\n    <h3>🔖 RÉPARTITION DES TYPES DE COURSES</h3>\n    <ul class=\"small\" style=\"margin:0; padding-left:18px;\">\n      <li>Avec abonnement : <strong>${esc(mlc?.avec_abonnement?.total ?? 0)}</strong> (extras : ${esc(mlc?.avec_abonnement?.nombre_extras ?? 0)})</li>\n      <li>Sans abonnement : <strong>${esc(mlc?.sans_abonnement?.total ?? 0)}</strong>\n        <div class=\"muted\">Zone 1 : ${esc(z.zone1_1750 ?? 0)} | Zone 2 : ${esc(z.zone2_2000 ?? 0)} | Zone 3 : ${esc(z.zone3_3000 ?? 0)} | Autre : ${esc(z.autre ?? 0)}</div>\n      </li>\n      <li>Autres : <strong>${esc(autres?.nombre ?? 0)}</strong> — Montant ${esc(fcfa(autres?.prix_total ?? 0))}</li>\n    </ul>\n  </div>\n`;\n\n/* Assemblage HTML */\nconst rapport_html = `\n<!doctype html>\n<html lang=\"fr\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Rapport quotidien – ${esc(frDate(day.date))}</title>\n<style>${css}</style>\n</head>\n<body>\n  <div class=\"wrap\">\n    ${htmlResume}\n    ${htmlInternes}\n    ${htmlClassement}\n    ${htmlSeuils}\n    ${htmlGeo}\n    ${htmlDep}\n    ${htmlTypes}\n    <div class=\"small muted\" style=\"margin-top:12px;\">Généré automatiquement.</div>\n  </div>\n</body>\n</html>\n`.trim();\n\n/* 6. Sortie n8n --------------------------------------------- */\nreturn [{\n  json: {\n    date: day.date,\n    rapport,        // texte brut\n    rapport_html    // HTML\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -304,
+        -288
+      ],
+      "id": "9e082135-bba3-4881-838c-fe259646e2c6",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "sendTo": "doucoure.saliou@gmail.com;ousmane.info@gmail.com;jeannesantos01@gmail.com;amarythiata@gmail.com;jbmmane@gmail.com",
+        "subject": "=MATA REPORT 2: MLC  {{ $('Code').item.json.date}}",
+        "message": "=<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;\n            border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;\n            margin:20px 0;\">\n  1. MLC/MATA\n</div>\n\n{{ $('Code').item.json.rapport_html}}\n\n<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;padding:8px 12px;\n            border-radius:8px;font-size:18px;font-weight:700;color:#0F172A;\n            margin:20px 0;\">\n  2. PURE CLIENTS MLC\n</div>\n{{ $('Code1').item.json.html}}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        432,
+        -288
+      ],
+      "id": "a64c74ce-6e72-4c6e-bd24-fc5f2c31ef73",
+      "name": "Send a message",
+      "webhookId": "ef926159-1423-40ef-a50e-340738e5a691",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "HrA0dfl3fOvncpm8",
+          "name": "Gmail account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://matix-livreur-backend.onrender.com/api/external/v1/orders/mlc-table?",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "statDay",
+              "value": "={{ $json.date }}"
+            },
+            {
+              "name": "type",
+              "value": "statOnly"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -48,
+        -288
+      ],
+      "id": "0cd2c9cb-2c5f-496f-95c2-52510f370ecf",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Function node\n// Entrée attendue: items[0].json.stats = { statDay, statWeek, statMonth, ... }\n// Sortie: un item avec html global + html_statDay/html_statWeek/html_statMonth et text\n\nfunction fmtNumber(n) {\n  if (n === null || n === undefined || n === '') return '';\n  const x = Number(n);\n  if (Number.isNaN(x)) return String(n);\n  return x.toLocaleString('fr-FR');\n}\n\nfunction fmtPack(v) {\n  if (v === null || v === undefined || v === '') return '';\n  return String(v);\n}\n\nfunction fmtDate(d) {\n  if (!d) return '';\n  return String(d);\n}\n\nfunction fmtRepartition(obj) {\n  if (!obj || typeof obj !== 'object') return '';\n  return Object.entries(obj).map(([k, v]) => `${k}: ${v}`).join(', ');\n}\n\n/**\n * Construit un tableau HTML et un bloc texte.\n * @param {string} periodLabel - Titre (ex: \"StatWeek / Clients\")\n * @param {object} periodObj   - Objet période { dateDebut, dateFin, clients: [...] }\n * @param {object} options     - { withInterpretation: boolean, interpretationText?: string }\n */\nfunction buildTable(periodLabel, periodObj, options = {}) {\n  const { withInterpretation = false, interpretationText = '' } = options;\n\n  const baseHeaders = [\n    'Nom', 'Téléphone', 'Total commandes', 'Dernière commande',\n    'MLC Abonnement', 'MLC Simple', 'Nombre supplément',\n    'Pack restant', 'Total courses (FCFA)', 'Somme suppléments (FCFA)', 'Répartition livreur'\n  ];\n  const headers = withInterpretation ? [...baseHeaders, 'Interprétation'] : baseHeaders;\n\n  let rowsHtml = '';\n  let rowsText = '';\n\n  const clients = Array.isArray(periodObj?.clients) ? periodObj.clients : [];\n\n  const periodRange = (periodObj?.dateDebut && periodObj?.dateFin)\n    ? ` (${periodObj.dateDebut} → ${periodObj.dateFin})`\n    : '';\n\n  if (clients.length === 0) {\n    const colspan = headers.length;\n    rowsHtml += `<tr><td colspan=\"${colspan}\" style=\"text-align:center;\">pas d'estimation!</td></tr>`;\n    rowsText += `- pas d'estimation!\\n`;\n  } else {\n    const sorted = clients\n      .slice()\n      .sort((a, b) => (b.total_commandes || 0) - (a.total_commandes || 0) || String(a.nom).localeCompare(String(b.nom)));\n\n    sorted.forEach((c, idx) => {\n      const line = {\n        nom: c.nom || '',\n        tel: c.telephone || '',\n        totCmd: fmtNumber(c.total_commandes),\n        last: fmtDate(c.date_derniere_commande),\n        abo: fmtNumber(c.mlc_abonnement),\n        simple: fmtNumber(c.mlc_simple),\n        nbSup: fmtNumber(c.nombre_supplement),\n        pack: fmtPack(c.pack_restant),\n        totalCourses: fmtNumber(c.total_courses),\n        sommeSupp: fmtNumber(c.somme_supplements),\n        repart: fmtRepartition(c.repartition_livreur),\n      };\n\n      // Construire les cellules \"classiques\"\n      let tds = `\n        <td>${line.nom}</td>\n        <td>${line.tel}</td>\n        <td style=\"text-align:right;\">${line.totCmd}</td>\n        <td>${line.last}</td>\n        <td style=\"text-align:right;\">${line.abo}</td>\n        <td style=\"text-align:right;\">${line.simple}</td>\n        <td style=\"text-align:right;\">${line.nbSup}</td>\n        <td>${line.pack}</td>\n        <td style=\"text-align:right;\">${line.totalCourses}</td>\n        <td style=\"text-align:right;\">${line.sommeSupp}</td>\n        <td>${line.repart}</td>\n      `;\n\n      // Ajouter la colonne \"Interprétation\" une seule fois (rowspan = nb de clients)\n      if (withInterpretation && idx === 0) {\n        const safeInterp = interpretationText || '';\n        tds += `<td rowspan=\"${sorted.length}\" style=\"vertical-align:top; white-space:pre-wrap;\">${safeInterp}</td>`;\n      }\n\n      rowsHtml += `<tr>${tds}</tr>`;\n\n      rowsText += `- ${line.nom} (${line.tel}) | Cmd: ${line.totCmd} | Dernière: ${line.last} | Abon.: ${line.abo} | `\n        + `Simple: ${line.simple} | Suppl.: ${line.nbSup} | Pack: ${line.pack} | Courses: ${line.totalCourses} FCFA | `\n        + `Suppl. tot.: ${line.sommeSupp} FCFA | Livreur(s): ${line.repart}\\n`;\n    });\n\n    // Ajouter le bloc d'interprétation à la fin du texte si demandé\n    if (withInterpretation && interpretationText) {\n      rowsText += `\\n[Interprétation]\\n${interpretationText}\\n`;\n    }\n  }\n\n  const tableHtml = `\n    <h3 style=\"margin:12px 0;\">${periodLabel}${periodRange}</h3>\n    <table border=\"1\" cellpadding=\"6\" cellspacing=\"0\" style=\"border-collapse:collapse; width:100%;\">\n      <thead>\n        <tr>\n          ${headers.map(h => `<th style=\"text-align:left;\">${h}</th>`).join('')}\n        </tr>\n      </thead>\n      <tbody>\n        ${rowsHtml}\n      </tbody>\n    </table>\n  `;\n\n  const textBlock = `${periodLabel}${periodRange}\\n${rowsText}`;\n\n  return { tableHtml, textBlock };\n}\n\n// --- Récupération des stats d'entrée\nconst stats = (items[0]?.json?.stats) || {};\nconst {\n  statDay = {},\n  statWeek = {},\n  statMonth = {},\n  interpretationWeek,   // au cas où l'interprétation serait aussi au niveau racine\n  interpretationMonth,   // idem\n} = stats;\n\n// Préférence: lire d'abord l'interprétation dans l'objet période\nconst interpWeek = statWeek?.interpretationWeek ?? interpretationWeek ?? '';\nconst interpMonth = statMonth?.interpretationMonth ?? interpretationMonth ?? '';\n\n// Construire les trois tableaux\nconst day   = buildTable('StatDay / Clients',   statDay,  { withInterpretation: false });\nconst week  = buildTable('StatWeek / Clients',  statWeek, { withInterpretation: true,  interpretationText: interpWeek });\nconst month = buildTable('StatMonth / Clients', statMonth,{ withInterpretation: true,  interpretationText: interpMonth });\n\nconst html = `\n  <div style=\"font-family:Arial, Helvetica, sans-serif; font-size:13px;\">\n    ${day.tableHtml}\n    ${week.tableHtml}\n    ${month.tableHtml}\n  </div>\n`;\n\nconst text = day.textBlock + '\\n' + week.textBlock + '\\n' + month.textBlock;\n\nreturn [\n  {\n    json: {\n      html,\n      text,\n      html_statDay: day.tableHtml,\n      html_statWeek: week.tableHtml,\n      html_statMonth: month.tableHtml,\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        -288
+      ],
+      "id": "55f652ee-2357-4a3b-899f-1b454a55c65e",
+      "name": "Code1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "deb08d04-6056-488a-be95-0e46f32e1202",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "82f23e971ae5c642c457163e4e62aec1113d609a56d1d03ed9bfbe1a35390e01"
+  },
+  "id": "E66rQ0GfC7EsEnFm",
+  "tags": []
+}

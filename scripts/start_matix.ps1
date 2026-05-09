@@ -29,13 +29,23 @@
 .EXAMPLE
   .\scripts\start_matix.ps1 -Mode dev -StopFirst
   Demarre en mode dev apres avoir tue les anciens process API/Web.
+
+.PARAMETER WithExtras
+  Demarre aussi les services optionnels du profile 'extras' :
+  n8n (workflows http://localhost:5678), redis (6379), mailhog (8025).
+  Sans ce flag, seuls Postgres + Keycloak sont lances.
+
+.EXAMPLE
+  .\scripts\start_matix.ps1 -WithExtras
+  Demarre la stack standard + n8n/redis/mailhog.
 #>
 [CmdletBinding()]
 param(
   [ValidateSet('keycloak', 'dev')]
   [string]$Mode = 'keycloak',
   [switch]$SkipPreflight,
-  [switch]$StopFirst
+  [switch]$StopFirst,
+  [switch]$WithExtras
 )
 
 $ErrorActionPreference = 'Stop'
@@ -200,12 +210,17 @@ if ($StopFirst) {
 }
 
 # ============================================================================
-# Start Docker stack (Postgres + Keycloak)
+# Start Docker stack (Postgres + Keycloak [+ extras: n8n/redis/mailhog])
 # ============================================================================
-Write-Section "Demarrage stack Docker (Postgres + Keycloak)"
+$stackLabel = if ($WithExtras) { "Postgres + Keycloak + n8n + Redis + MailHog" } else { "Postgres + Keycloak" }
+Write-Section "Demarrage stack Docker ($stackLabel)"
 Push-Location $RepoRoot
 try {
-  $r = Invoke-Docker compose up -d
+  $r = if ($WithExtras) {
+    Invoke-Docker compose --profile extras up -d
+  } else {
+    Invoke-Docker compose up -d
+  }
   if ($r.ExitCode -ne 0) {
     Write-Err "docker compose up a echoue (exit $($r.ExitCode)):"
     $r.Output | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
@@ -242,6 +257,13 @@ if (-not (Wait-ForUrl 'http://localhost:8080/realms/matix' 'Keycloak (realm mati
   if ($Mode -eq 'keycloak') {
     Write-Err "Mode keycloak requis mais Keycloak indisponible. Abandon."
     exit 1
+  }
+}
+
+# Wait for n8n if extras profile active
+if ($WithExtras) {
+  if (-not (Wait-ForUrl 'http://localhost:5678/healthz' 'n8n (workflows)' 60)) {
+    Write-Warn "n8n pas pret - verifie 'docker logs matix-n8n'"
   }
 }
 
@@ -309,6 +331,12 @@ $rows += [pscustomobject]@{ Service = "API ($Mode)"      ; URL = 'http://localho
 $rows += [pscustomobject]@{ Service = 'API health'       ; URL = 'http://localhost:3001/health'              ; Source = '-' }
 $rows += [pscustomobject]@{ Service = 'API readyz'       ; URL = 'http://localhost:3001/readyz'              ; Source = '-' }
 $rows += [pscustomobject]@{ Service = 'Frontend (PWA)'   ; URL = 'http://localhost:3000'                     ; Source = "Fenetre 'Matix - Web'" }
+if ($WithExtras) {
+  $rows += [pscustomobject]@{ Service = 'n8n (workflows)' ; URL = 'http://localhost:5678'                    ; Source = 'Docker (matix-n8n) - login admin/admin' }
+  $rows += [pscustomobject]@{ Service = 'Redis'           ; URL = 'localhost:6379'                           ; Source = 'Docker (matix-redis)' }
+  $rows += [pscustomobject]@{ Service = 'MailHog (UI)'    ; URL = 'http://localhost:8025'                    ; Source = 'Docker (matix-mailhog)' }
+  $rows += [pscustomobject]@{ Service = 'MailHog (SMTP)'  ; URL = 'localhost:1025'                           ; Source = 'Docker (matix-mailhog)' }
+}
 $rows | Format-Table -AutoSize
 
 if ($Mode -eq 'keycloak') {

@@ -302,6 +302,109 @@ export type CreateSaleInput = {
   auto_post?: boolean;
 };
 
+// ---- Workflows ----
+export type ConfigurableSettingType =
+  | 'time'
+  | 'text'
+  | 'number'
+  | 'emails'
+  | 'boolean';
+
+export type ConfigurableSetting = {
+  key: string;
+  label: string;
+  type: ConfigurableSettingType;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  default?: any;
+  required?: boolean;
+  help?: string;
+};
+
+export type WorkflowTemplate = {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  // n8n_definition est libre — JSON brut export n8n
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  n8n_definition: any;
+  configurable_settings: ConfigurableSetting[];
+  required_modules: string[];
+  restricted_to_tenants: string[];
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreateWorkflowTemplateInput = {
+  code: string;
+  name: string;
+  description?: string;
+  configurable_settings: ConfigurableSetting[];
+  required_modules: string[];
+  restricted_to_tenants?: string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  n8n_definition?: any;
+};
+
+export type UpdateWorkflowTemplateInput = {
+  name?: string;
+  description?: string;
+  configurable_settings?: ConfigurableSetting[];
+  required_modules?: string[];
+  restricted_to_tenants?: string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  n8n_definition?: any;
+  is_active?: boolean;
+};
+
+export type WorkflowRunStatus = 'running' | 'success' | 'error' | 'timeout';
+export type WorkflowRunTrigger = 'cron' | 'manual' | 'webhook';
+
+export type TenantWorkflowInstance = {
+  id: string;
+  tenant_id: string;
+  template_id: string;
+  template_code: string;
+  template_name: string;
+  n8n_workflow_id: string | null;
+  enabled: boolean;
+  // settings libre — schema dicté par configurable_settings du template
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  custom_settings: Record<string, any>;
+  configured_by: string | null;
+  configured_at: string | null;
+  last_run_at: string | null;
+  last_run_status: 'success' | 'error' | 'running' | null;
+  last_run_error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ActivateWorkflowInput = {
+  template_code: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  custom_settings?: Record<string, any>;
+};
+
+export type WorkflowRun = {
+  id: string;
+  instance_id: string;
+  template_code: string;
+  triggered_by: WorkflowRunTrigger;
+  triggered_by_user: string | null;
+  started_at: string;
+  finished_at: string | null;
+  status: WorkflowRunStatus;
+  duration_ms: number | null;
+  n8n_execution_id: string | null;
+  error_message: string | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  payload_summary: Record<string, any> | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  output_summary: Record<string, any> | null;
+};
+
 /**
  * Endpoints admin plateforme (sans tenant context — pas de Bearer requis Phase 0).
  * Phase 1 : à protéger côté API par AuthGuard "super-admin Matix".
@@ -477,5 +580,67 @@ export const api = {
       }),
     remove: (a: AuthState, userId: string) =>
       apiFetch<void>(a, `/team/${userId}`, { method: 'DELETE' }),
+  },
+  adminWorkflowTemplates: {
+    list: () => adminFetch<WorkflowTemplate[]>('/admin/workflow-templates'),
+    get: (code: string) =>
+      adminFetch<WorkflowTemplate>(`/admin/workflow-templates/${code}`),
+    create: (body: CreateWorkflowTemplateInput) =>
+      adminFetch<WorkflowTemplate>('/admin/workflow-templates', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    update: (id: string, body: UpdateWorkflowTemplateInput) =>
+      adminFetch<WorkflowTemplate>(`/admin/workflow-templates/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+    remove: (id: string) =>
+      adminFetch<void>(`/admin/workflow-templates/${id}`, { method: 'DELETE' }),
+    setActive: (id: string, isActive: boolean) =>
+      adminFetch<WorkflowTemplate>(`/admin/workflow-templates/${id}/active`, {
+        method: 'PATCH',
+        body: JSON.stringify({ is_active: isActive }),
+      }),
+  },
+  tenantWorkflows: {
+    listTemplates: (a: AuthState) =>
+      apiFetch<WorkflowTemplate[]>(a, '/workflows/templates'),
+    listInstances: (a: AuthState) =>
+      apiFetch<TenantWorkflowInstance[]>(a, '/workflows/instances'),
+    activate: (a: AuthState, body: ActivateWorkflowInput) =>
+      apiFetch<TenantWorkflowInstance>(a, '/workflows/activate', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    updateSettings: (
+      a: AuthState,
+      id: string,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      settings: Record<string, any>,
+    ) =>
+      apiFetch<TenantWorkflowInstance>(a, `/workflows/instances/${id}/settings`, {
+        method: 'PATCH',
+        body: JSON.stringify({ custom_settings: settings }),
+      }),
+    disable: (a: AuthState, id: string) =>
+      apiFetch<TenantWorkflowInstance>(a, `/workflows/instances/${id}/disable`, {
+        method: 'POST',
+      }),
+    trigger: (a: AuthState, id: string) =>
+      apiFetch<{ run_id: string; n8n_execution_id: string | null }>(
+        a,
+        `/workflows/instances/${id}/trigger`,
+        { method: 'POST' },
+      ),
+    listRuns: (a: AuthState, instanceId?: string, limit?: number) => {
+      const qs = new URLSearchParams();
+      if (instanceId) qs.set('instance_id', instanceId);
+      if (limit) qs.set('limit', String(limit));
+      return apiFetch<WorkflowRun[]>(
+        a,
+        `/workflows/runs${qs.toString() ? '?' + qs : ''}`,
+      );
+    },
   },
 };

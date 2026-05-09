@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-  Arrete la stack Matix locale : API + Web (process Node) + Postgres + Keycloak
-  (conteneurs Docker via 'docker compose stop').
+  Arrete la stack Matix locale : API + Web (process Node) + tous les conteneurs
+  Docker (Postgres + Keycloak + extras n8n/Redis/MailHog s'ils tournent).
 
 .PARAMETER KeepDocker
   Stop uniquement les process API/Web, laisse la stack Docker tourner.
@@ -80,12 +80,15 @@ if ($KeepDocker) {
   Write-Host ""
   Push-Location $RepoRoot
   try {
+    # --profile extras est passe a 'down' pour cibler aussi les conteneurs
+    # n8n/Redis/MailHog s'ils existent (sinon ils resteraient orphelins).
+    # 'stop' n'en a pas besoin: il stoppe tous les conteneurs running du projet.
     if ($WipeData) {
       Write-Host "  [!] Reset complet : suppression conteneurs + volumes (donnees perdues)..." -ForegroundColor Yellow
-      $r = Invoke-Docker compose down -v
+      $r = Invoke-Docker compose --profile extras down -v
     } elseif ($Down) {
       Write-Host "  Suppression des conteneurs (volumes preserves)..." -ForegroundColor DarkGray
-      $r = Invoke-Docker compose down
+      $r = Invoke-Docker compose --profile extras down
     } else {
       Write-Host "  Stop des conteneurs Docker (conteneurs + volumes preserves)..." -ForegroundColor DarkGray
       $r = Invoke-Docker compose stop

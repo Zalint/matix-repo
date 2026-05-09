@@ -20,6 +20,13 @@ export type ResolvedAuth = {
  * AUTH_MODE = 'dev'      → headers X-Dev-Tenant-Id / X-Dev-User-Id (Phase 0).
  * AUTH_MODE = 'keycloak' → JWT Bearer Keycloak vérifié + lookup tenant_members.
  *
+ * Mode "service" — détection AUTOMATIQUE (avant les autres modes) :
+ *   Si la requête présente un header `X-Service-Token` valide, on bypasse
+ *   l'auth utilisateur et on lit `X-Service-Tenant-Id` pour fixer le contexte.
+ *   Utilisé par n8n (et autres services internes) pour appeler Matix API
+ *   avec un tenant_id arbitraire. La sécurité repose sur le secret partagé
+ *   `MATIX_SERVICE_TOKEN` (long random string).
+ *
  * Le rôle vient TOUJOURS de tenant_members (pas du JWT) — c'est la DB la source
  * de vérité. Le JWT/realm_access ne sert que pour les rôles plateforme transverses.
  *
@@ -28,6 +35,12 @@ export type ResolvedAuth = {
  * le contexte d'un autre tenant.
  */
 export async function extractAuthContext(req: Request, adminPool: Pool): Promise<ResolvedAuth> {
+  // Mode service : token partagé (n8n → Matix). Prioritaire sur les autres modes.
+  const serviceToken = req.header('x-service-token');
+  if (serviceToken) {
+    return extractService(req, serviceToken);
+  }
+
   const mode = process.env.AUTH_MODE ?? 'dev';
 
   if (mode === 'dev') {
@@ -37,6 +50,36 @@ export async function extractAuthContext(req: Request, adminPool: Pool): Promise
     return extractKeycloak(req, adminPool);
   }
   throw new UnauthorizedException(`AUTH_MODE inconnu: ${mode}`);
+}
+
+// ---------------------------------------------------------------------------
+// Mode service — token partagé pour les appels machine-to-machine (n8n, jobs)
+// ---------------------------------------------------------------------------
+
+function extractService(req: Request, serviceToken: string): ResolvedAuth {
+  const expected = process.env.MATIX_SERVICE_TOKEN;
+  if (!expected) {
+    throw new UnauthorizedException(
+      'X-Service-Token présent mais MATIX_SERVICE_TOKEN non configuré côté API',
+    );
+  }
+  if (serviceToken !== expected) {
+    throw new UnauthorizedException('X-Service-Token invalide');
+  }
+
+  const tenantId = req.header('x-service-tenant-id');
+  if (!tenantId || !isUuid(tenantId)) {
+    throw new UnauthorizedException(
+      'X-Service-Tenant-Id manquant ou invalide (UUID requis)',
+    );
+  }
+
+  return {
+    tenantId,
+    userId: 'system',
+    email: 'system@matix',
+    role: 'system',
+  };
 }
 
 async function resolveRole(

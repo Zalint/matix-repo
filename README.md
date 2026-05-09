@@ -13,13 +13,13 @@ Matix unifie en une seule plateforme modulaire les fonctionnalités aujourd'hui 
 - **Matix Livreur (MLC)** — CRM, Livraison, GPS, Pointages
 - **Dépenses Management** — Comptabilité, Créances, Snapshots
 
-**~50 modules cibles dans 6 piliers** (cf. `apps/api/src/modules/licensing/catalog.ts`) :
-- **Platform** — Identity/Tenancy, Team, Audit, Notifications, Files, API keys, Webhooks, Settings, Snapshots
-- **Commercial** — CRM, Sales/POS, Subscriptions, Pricing, Loyalty
-- **Operations** — Inventory, Procurement, Delivery/GPS, HR-lite, Livestock
-- **Finance** — Accounting (SYSCOHADA double-entry), Expenses, Invoicing, Payments, Receivables, Banking
-- **Analytics** — Dashboards, Reports, Exports, AI insights, Market intelligence
-- **Marketplace** — Catalog, Vendors, Commissions
+**88 modules cibles dans 6 piliers** (cf. `apps/api/src/modules/licensing/catalog.ts`) :
+- **Platform (13)** — Identity/Tenancy, Team, Audit, Notifications, Files, API keys, Webhooks, Settings, Snapshots, Integrations, Workflows
+- **Commercial (16)** — CRM, Sales/POS, Subscriptions, Pricing, Loyalty
+- **Operations (22)** — Inventory, Procurement, Delivery/GPS, HR-lite, Livestock
+- **Finance (22)** — Accounting (SYSCOHADA double-entry), Expenses, Invoicing, Payments, Receivables, Banking
+- **Analytics (15)** — Dashboards, Reports (incl. daily_digest), Exports, AI insights, AI agent (LLM), Market intelligence
+- **Marketplace (0, Phase 4)** — Catalog, Vendors, Commissions
 
 ## Stack
 
@@ -40,6 +40,7 @@ Matix unifie en une seule plateforme modulaire les fonctionnalités aujourd'hui 
 | Hébergement Phase 1 | Hetzner + Coolify | Budget $1000/mo cible respecté |
 | Mono-repo | pnpm workspaces + Turborepo | `pnpm dev` lance API + Web en parallèle |
 | Infra locale | **Docker Compose** | Postgres + Keycloak en conteneurs, apps Node natives (cf. `docs/local-setup.md`) |
+| Workflows externes (transition) | **n8n** (3 workflows) — service Docker en profile `extras`, DB partagée Postgres | Rapports quotidiens email + agent agrégateur APIs ; à absorber par `platform.workflows` + `analytics.ai.agent` Phase 2/4 (cf. `infra/n8n-workflows/`) |
 
 **Décisions explicites** : monolithe modulaire (pas microservices), Postgres RLS (pas schema-per-tenant ni DB-per-tenant), SYSCOHADA double-entry strict, **pas d'offline-first** Phase 1.
 
@@ -55,7 +56,7 @@ Matix2.0/
 ├── packages/
 │   └── shared/             # Types partagés API ↔ Web
 ├── db/
-│   ├── migrations/         # 9 migrations SQL versionnées (000N_*.sql)
+│   ├── migrations/         # 10 migrations SQL versionnées (000N_*.sql)
 │   ├── init/               # Scripts d'init Postgres au 1er boot du conteneur
 │   ├── backups/            # Dumps + scripts d'import (gitignored hors README)
 │   └── seed.sql            # Seed dev de base
@@ -66,12 +67,13 @@ Matix2.0/
 │   ├── local-setup.md                 # Démarrage Docker + troubleshooting
 │   └── adr/                           # 7 Architecture Decision Records
 ├── infra/
-│   └── keycloak/           # realm-matix.json + procédures admin
+│   ├── keycloak/           # realm-matix.json + procédures admin
+│   └── n8n-workflows/      # 3 workflows JSON + README (à absorber Phase 2/4)
 ├── scripts/
 │   ├── start_matix.ps1     # Lance Docker + API + Web (Windows)
 │   ├── stop_matix.ps1      # Stoppe API/Web et/ou Docker
 │   └── check-rls-migrations.sh
-└── docker-compose.yml      # Postgres + Keycloak (default), Redis + MailHog (extras)
+└── docker-compose.yml      # Postgres + Keycloak (default), Redis + MailHog + n8n (extras)
 ```
 
 ## Démarrer en local
@@ -136,9 +138,9 @@ Compte admin Keycloak : http://localhost:8080/admin — `admin` / `admin`.
 **Fondations**
 - Multi-tenant RLS Postgres (ADR-0001) — isolation cross-tenant validée par **55 tests e2e** (ventes, inventaire, customers, points-of-sale, licensing, team)
 - Auth **Keycloak 25** OIDC + Auth.js v5 côté web, refresh tokens, mode `dev` (headers `X-Dev-*`) pour tests/CI
-- Catalogue centralisé de **~50 modules** + table `plans` + `tenant_licenses` + `role_permissions` (ADR-0005, ADR-0006)
+- Catalogue centralisé de **88 modules** + table `plans` + `tenant_licenses` + `role_permissions` (ADR-0005, ADR-0006)
 - Convention modules NestJS appliquée à tous les modules (ADR-0002)
-- **9 migrations SQL** versionnées (`db/migrations/000N_*.sql`) + runner idempotent
+- **10 migrations SQL** versionnées (`db/migrations/000N_*.sql`) + runner idempotent
 - **Infra Docker locale** : Postgres 17 + Keycloak 25 (DB Postgres dédiée), scripts `start_matix.ps1` / `stop_matix.ps1`, doc `local-setup.md`
 - Documentation : 4 docs accessibles (`architecture-explained`, `granularity-and-scalability`, `business-rules-catalog`, `local-setup`) + 7 ADRs
 
@@ -177,6 +179,7 @@ Compte admin Keycloak : http://localhost:8080/admin — `admin` / `admin`.
 - Delivery : `orders`, `drivers`, `gps`, `routes`, `scoring` (formule MLC), `proof_of_delivery`, `bidirectional_ratings`
 - HR-lite : `timesheets` (avec photo start/end), `expenses` (carburant, réparations, etc.), `schedules`
 - Commercial : `subscriptions.plans` (cartes MLC) + `subscriptions.billing`
+- **Plateforme & IA** : `platform.integrations` (hub Gmail/Bictorys/Slack) + `platform.workflows` (modèle managé : 3 templates Matix paramétrables par tenant, engine n8n caché derrière UI Matix `/settings/workflows`) + `analytics.ai.agent` (chatbot multi-API LLM, successeur webhook MATA AGENT) + `analytics.reports.daily_digest` (wrap les 2 templates daily reports)
 
 **Phase 3 — Verticale finance (SYSCOHADA)**
 - Comptabilité : `accounting.gl` (Grand Livre double-entry), `accounting.statements` (bilan, P&L), `accounting.tax` (TVA + déclarations)
@@ -192,6 +195,8 @@ Compte admin Keycloak : http://localhost:8080/admin — `admin` / `admin`.
 - Marketplace de modules tiers
 - **Migration progressive** des 3 apps Mata existantes (Maas App, MLC, Dépenses Management) vers Matix
 - Veille marché AI (`analytics.market_intelligence` — RSS + GPT, depuis Maas)
+
+> Note : `platform.workflows` est en Phase 2 (modèle managé, n8n DURABLE comme engine — pas décommissionné). Création de workflows custom hors templates = ticket admin Matix.
 
 Pour la liste exhaustive des modules avec leur statut détaillé : `apps/api/src/modules/licensing/catalog.ts`.
 

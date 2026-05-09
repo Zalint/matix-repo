@@ -7,6 +7,9 @@ import type { ModuleAction } from './catalog';
  * surcharge pour le tenant (tier Enterprise).
  */
 export const ROLE_DEFAULTS_FALLBACK: Record<TenantRole, ModuleAction[]> = {
+  // system : pseudo-rôle pour les appels machine-to-machine (n8n, jobs).
+  // Tous droits accordés — la sécurité est gérée par le secret MATIX_SERVICE_TOKEN.
+  system:      ['read', 'write', 'delete'],
   owner:       ['read', 'write', 'delete'],
   admin:       ['read', 'write', 'delete'],
   superviseur: ['read', 'write'],
