@@ -190,6 +190,24 @@ if (-not $SkipPreflight) {
     exit 1
   }
   Write-OK "node_modules present"
+
+  # n8n API key (optionnel, mais recommande quand WithExtras)
+  if ($WithExtras) {
+    $apiEnvPath = "$RepoRoot\apps\api\.env"
+    $hasN8nKey = $false
+    if (Test-Path $apiEnvPath) {
+      $apiEnvContent = Get-Content $apiEnvPath -Raw
+      if ($apiEnvContent -match '(?m)^\s*N8N_API_KEY\s*=\s*\S+') {
+        $hasN8nKey = $true
+      }
+    }
+    if ($hasN8nKey) {
+      Write-OK "N8N_API_KEY presente dans apps/api/.env"
+    } else {
+      Write-Warn "N8N_API_KEY absente - le N8nClientService tournera en mode degrade"
+      Write-Info "Pour generer la cle : .\scripts\setup_n8n_key.ps1"
+    }
+  }
 }
 
 # ============================================================================
