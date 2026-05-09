@@ -1,0 +1,106 @@
+{
+  "name": "[Matix] Daily Cash Report (template)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mata-daily-cash-report",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-entry",
+      "name": "Webhook (Matix → n8n)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "Reçoit du payload depuis le scheduler Matix : {tenant_id, tenant_slug, api_base, service_token, recipients[], settings}"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.api_base }}/api/external/dashboard/cash-summary",
+        "method": "GET",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Service-Token", "value": "={{ $json.service_token }}" },
+            { "name": "X-Service-Tenant-Id", "value": "={{ $json.tenant_id }}" }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "response": { "response": { "neverError": false } }
+        }
+      },
+      "id": "get-cash-summary",
+      "name": "GET Cash Summary (Matix RLS)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300],
+      "notes": "Appelle Matix avec X-Service-Tenant-Id : RLS s'applique côté Postgres"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reformatage du payload pour l'email\nconst data = $input.first().json;\nconst webhook = $('Webhook (Matix → n8n)').first().json;\n\nconst tenantSlug = webhook.tenant_slug || 'tenant';\nconst date = new Date().toLocaleDateString('fr-FR');\n\nconst html = `\n  <h1>Rapport quotidien - ${tenantSlug}</h1>\n  <p>Date : ${date}</p>\n  <h2>Résumé cash</h2>\n  <pre>${JSON.stringify(data, null, 2)}</pre>\n  <hr>\n  <small>Email envoyé automatiquement via Matix workflows.</small>\n`;\n\nreturn [{\n  json: {\n    html,\n    subject: `[Matix] Rapport quotidien ${tenantSlug} — ${date}`,\n    recipients: webhook.recipients || [],\n    tenant_slug: tenantSlug\n  }\n}];"
+      },
+      "id": "format-email",
+      "name": "Format email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "Formate les données reçues de Matix en HTML pour l'email"
+    },
+    {
+      "parameters": {
+        "fromEmail": "noreply@matix.local",
+        "toEmail": "={{ $json.recipients.join(',') }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "send-email",
+      "name": "Send Email (SMTP MailHog en dev)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "Credentials SMTP à configurer dans n8n. En dev : MailHog (mailhog:1025). En prod : SES/SendGrid/Postmark."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"sent\", \"recipients_count\": {{ $('Webhook (Matix → n8n)').first().json.recipients.length }}, \"tenant_id\": \"={{ $('Webhook (Matix → n8n)').first().json.tenant_id }}\" }"
+      },
+      "id": "respond-webhook",
+      "name": "Respond to Webhook (Matix)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 300],
+      "notes": "Réponse au scheduler Matix : status + count. Matix l'utilise pour update workflow_runs.status"
+    }
+  ],
+  "connections": {
+    "Webhook (Matix → n8n)": {
+      "main": [[{ "node": "GET Cash Summary (Matix RLS)", "type": "main", "index": 0 }]]
+    },
+    "GET Cash Summary (Matix RLS)": {
+      "main": [[{ "node": "Format email", "type": "main", "index": 0 }]]
+    },
+    "Format email": {
+      "main": [[{ "node": "Send Email (SMTP MailHog en dev)", "type": "main", "index": 0 }]]
+    },
+    "Send Email (SMTP MailHog en dev)": {
+      "main": [[{ "node": "Respond to Webhook (Matix)", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [],
+  "active": false,
+  "meta": {
+    "matix_template_code": "mata.daily_cash_report",
+    "matix_phase": "2-strategy-c",
+    "matix_pattern": "managed-multi-tenant",
+    "description": "Template Matix Stratégie C : Webhook entry → GET Matix API avec X-Service-Tenant-Id (RLS) → Format → Email → Respond. À cloner par tenant via Matix /admin/workflows."
+  }
+}

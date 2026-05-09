@@ -43,6 +43,99 @@
 - Email : "MATA REPORT 1: Ventes et Stock {date}"
 - C'est le futur `analytics.ai.agent` : un endpoint qui agrège tout l'état business sur demande
 
+## Templates Stratégie C (Phase 2)
+
+Les 3 JSON `mata-*.json` à la racine sont les **workflows legacy n8n** exportés tels quels (URLs hardcodées vers les 3 apps Mata). Ils servent de référence historique.
+
+Les **templates Stratégie C** (Matix orchestre, n8n exécute) sont dans `templates-strategy-c/` et suivent le pattern :
+
+```
+Webhook (POST) — reçoit { tenant_id, tenant_slug, api_base, service_token, recipients[], settings }
+   ↓
+HTTP Request → Matix API
+   Headers: X-Service-Token + X-Service-Tenant-Id
+   URL: {{ $json.api_base }}/api/external/...
+   ↓ (RLS Postgres filtre par tenant_id)
+Code (formatage)
+   ↓
+Send Email
+   to: {{ $json.recipients.join(',') }}
+   ↓
+Respond to Webhook → { status: "sent", recipients_count, tenant_id }
+```
+
+### Templates disponibles
+
+| Fichier | Template code | Nodes | Status |
+|---|---|---|---|
+| `templates-strategy-c/daily-cash-report-template.json` | `mata.daily_cash_report` | 5 | Seedé en DB ✓ |
+| `templates-strategy-c/daily-mlc-report-template.json` | `mata.daily_mlc_report` | — | À créer (Phase 2 step 3) |
+| `templates-strategy-c/daily-business-agent-template.json` | `mata.daily_business_agent` | — | À créer (Phase 2 step 3, complexe — 16 APIs) |
+
+### Charger les templates en DB
+
+Les `n8n_definition` de la table `workflow_templates` sont seedés via :
+
+```powershell
+pnpm --filter @matix/api db:seed:workflow-templates
+```
+
+Le script lit tous les `templates-strategy-c/*.json`, identifie le `meta.matix_template_code` dans chaque fichier, et UPDATE la row correspondante dans `workflow_templates`. Idempotent.
+
+### Adapter les workflows legacy vers Stratégie C
+
+Pour transformer un workflow legacy (ex: `mata-banq-report.json`) :
+
+1. **Trigger** : remplacer `Schedule Trigger` par `Webhook` avec `httpMethod: POST` et `path: <slug>`
+2. **HTTP Request** : remplacer chaque URL hardcodée par une expression :
+   ```
+   {{ $json.api_base }}/api/external/<endpoint>
+   ```
+   Et ajouter dans `headerParameters` :
+   ```json
+   { "name": "X-Service-Token",   "value": "={{ $json.service_token }}" },
+   { "name": "X-Service-Tenant-Id", "value": "={{ $json.tenant_id }}" }
+   ```
+3. **Send Email** : remplacer `toEmail` codé en dur par :
+   ```
+   {{ $('Webhook').first().json.recipients.join(',') }}
+   ```
+4. **Ajouter** un node `Respond to Webhook` à la fin pour que Matix puisse logger le résultat
+5. **Métadonnées** : ajouter dans `meta` :
+   ```json
+   {
+     "matix_template_code": "mata.your_workflow_code",
+     "matix_phase": "2-strategy-c",
+     "matix_pattern": "managed-multi-tenant"
+   }
+   ```
+6. **Sauvegarder** dans `templates-strategy-c/` puis run `pnpm db:seed:workflow-templates`
+
+### Importer un template dans n8n (test bout-en-bout)
+
+```powershell
+# 1. Lancer n8n (profile extras)
+.\scripts\start_matix.ps1 -WithExtras
+
+# 2. UI n8n : http://localhost:5678
+#    Login avec ton compte owner créé au setup
+
+# 3. Workflows → "+" → Import from File
+#    → infra/n8n-workflows/templates-strategy-c/daily-cash-report-template.json
+
+# 4. Configurer les credentials SMTP dans le node Send Email :
+#    En dev : SMTP localhost:1025 (MailHog) — démarrer avec docker compose --profile extras up -d mailhog
+#    En prod : SES / SendGrid / Postmark
+
+# 5. Activer le workflow (toggle "Active" en haut à droite)
+
+# 6. Tester depuis Matix :
+#    /admin/workflows → activer "mata.daily_cash_report" pour Mata Mbao
+#    /settings/workflows → trigger manuel → vérifier email reçu via http://localhost:8025
+```
+
+---
+
 ## Plan d'implémentation (n8n reste — pas décommissionné)
 
 n8n est l'engine d'exécution durable. Ce qui change Phase 2, c'est l'**UI Matix** qui wrappe n8n.
