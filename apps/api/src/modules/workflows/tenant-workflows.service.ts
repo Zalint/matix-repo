@@ -246,6 +246,79 @@ export class TenantWorkflowsService {
   }
 
   // ---------------------------------------------------------------------------
+  // Re-activate (symetrique de disable)
+  // ---------------------------------------------------------------------------
+
+  async enable(instanceId: string): Promise<TenantWorkflowInstance> {
+    const tenantId = this.tenantId();
+    const client = getTenantPgClient(this.cls);
+
+    // Recupere l'instance + le template (besoin de n8n_definition pour clone si manquant)
+    const { rows } = await client.query<{
+      id: string;
+      template_id: string;
+      n8n_workflow_id: string | null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      n8n_definition: any;
+    }>(
+      `SELECT twi.id, twi.template_id, twi.n8n_workflow_id, wt.n8n_definition
+         FROM tenant_workflow_instances twi
+         JOIN workflow_templates wt ON wt.id = twi.template_id
+        WHERE twi.id = $1`,
+      [instanceId],
+    );
+    if (rows.length === 0) {
+      throw new NotFoundException('Instance de workflow introuvable');
+    }
+    const inst = rows[0];
+
+    let n8nWorkflowId = inst.n8n_workflow_id;
+
+    // Si pas encore clone dans n8n (mode degrade precedent ou template sans n8n_definition au moment de l'activate)
+    // -> retente le clone maintenant
+    if (!n8nWorkflowId && inst.n8n_definition) {
+      try {
+        n8nWorkflowId = await this.n8nClient.cloneWorkflow(
+          inst.n8n_definition,
+          tenantId,
+          instanceId,
+        );
+        if (n8nWorkflowId) {
+          this.log.log(`Workflow clone dans n8n: instance=${instanceId} n8n_id=${n8nWorkflowId}`);
+        }
+      } catch (e) {
+        this.log.warn(
+          `Clone n8n a echoue (continue quand meme, instance reactivee sans clone): ${(e as Error).message}`,
+        );
+      }
+    }
+
+    // Active dans n8n si on a un workflow_id (existant ou nouvellement clone)
+    if (n8nWorkflowId) {
+      try {
+        await this.n8nClient.activateWorkflow(n8nWorkflowId, true);
+      } catch (e) {
+        this.log.warn(
+          `Activate n8n workflow ${n8nWorkflowId} a echoue (continue): ${(e as Error).message}`,
+        );
+      }
+    }
+
+    // Update DB : enabled + n8n_workflow_id si on en a un nouveau
+    await client.query(
+      `UPDATE tenant_workflow_instances
+          SET enabled = TRUE,
+              n8n_workflow_id = COALESCE($2, n8n_workflow_id),
+              updated_at = NOW()
+        WHERE id = $1`,
+      [instanceId, n8nWorkflowId],
+    );
+
+    this.log.log(`Workflow reactive: tenant=${tenantId} instance=${instanceId}`);
+    return this.getInstance(instanceId);
+  }
+
+  // ---------------------------------------------------------------------------
   // Update settings
   // ---------------------------------------------------------------------------
 

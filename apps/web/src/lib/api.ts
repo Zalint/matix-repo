@@ -627,6 +627,10 @@ export const api = {
       apiFetch<TenantWorkflowInstance>(a, `/workflows/instances/${id}/disable`, {
         method: 'POST',
       }),
+    enable: (a: AuthState, id: string) =>
+      apiFetch<TenantWorkflowInstance>(a, `/workflows/instances/${id}/enable`, {
+        method: 'POST',
+      }),
     trigger: (a: AuthState, id: string) =>
       apiFetch<{ run_id: string; n8n_execution_id: string | null }>(
         a,

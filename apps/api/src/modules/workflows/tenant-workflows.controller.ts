@@ -61,6 +61,13 @@ export class TenantWorkflowsController {
     return this.tenantWorkflows.disable(id);
   }
 
+  /** Reactive une instance (re-clone n8n si n8n_workflow_id manquant). */
+  @Post('instances/:id/enable')
+  @RequiresModule('platform.workflows', 'write')
+  enable(@Param('id', ParseUUIDPipe) id: string) {
+    return this.tenantWorkflows.enable(id);
+  }
+
   /** Declenchement manuel a la demande — cree un workflow_run audite. */
   @Post('instances/:id/trigger')
   @RequiresModule('platform.workflows', 'write')
