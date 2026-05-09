@@ -118,10 +118,12 @@ X-Service-Tenant-Id: <tenant-uuid>
 
 L'API recoit ce header, valide le token, et applique RLS Postgres avec le tenant_id reçu.
 
-> Pour générer un token costaud :
+> Pour générer un token costaud (compatible PS 5.1 et 7+) :
 > ```powershell
-> [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+> $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+> $b = [byte[]]::new(32); $rng.GetBytes($b); [Convert]::ToBase64String($b); $rng.Dispose()
 > ```
+> (en PS 7+ uniquement, la version courte `[...]::GetBytes(32)` marche aussi)
 
 > **`api_base` envoyé dans le payload webhook n8n** :
 > Comme n8n tourne en Docker mais l'API Matix tourne en natif sur le host (Node `pnpm dev` sur :3001), n8n doit utiliser `http://host.docker.internal:3001` (et **pas** `http://localhost:3001`, qui pointerait vers le conteneur n8n lui-même). Le payload type :

@@ -103,7 +103,12 @@ try {
 
 # 4. Generer un MATIX_SERVICE_TOKEN si pas deja present
 Write-Section "Generation du MATIX_SERVICE_TOKEN"
-$serviceToken = [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+# Syntaxe compatible PowerShell 5.1 ET 7+ (la methode statique GetBytes() requiert PS 7+).
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$bytes = [byte[]]::new(32)
+$rng.GetBytes($bytes)
+$serviceToken = [Convert]::ToBase64String($bytes)
+$rng.Dispose()
 Write-OK "Token genere (32 bytes random base64)"
 
 # 5. Ecrire dans .env
