@@ -18,16 +18,18 @@
 
 .EXAMPLE
   .\scripts\stop_matix.ps1
-  Stop API + Web, fait un 'docker compose stop' (la stack Docker reste
-  presente, juste arretee — redemarrage rapide).
+  Stop API + Web + tous les conteneurs Docker (incluant extras
+  n8n/Redis/MailHog s'ils tournent). Conteneurs + volumes preserves.
 
 .EXAMPLE
   .\scripts\stop_matix.ps1 -KeepDocker
-  Stop uniquement API + Web. Postgres et Keycloak continuent de tourner.
+  Stop uniquement API + Web. La stack Docker entiere (Postgres + Keycloak
+  + n8n + extras) continue de tourner.
 
 .EXAMPLE
   .\scripts\stop_matix.ps1 -WipeData
-  Reset complet : tue tout + supprime conteneurs ET volumes Docker.
+  Reset complet : tue tout + supprime conteneurs ET volumes Docker
+  (perd la DB, Keycloak, n8n workflows).
 #>
 [CmdletBinding()]
 param(
@@ -75,7 +77,7 @@ Stop-Port 3001 'API NestJS'
 # 2. Stop / Down de la stack Docker
 if ($KeepDocker) {
   Write-Host ""
-  Write-Host "  Stack Docker laissee active (Postgres + Keycloak continuent de tourner)." -ForegroundColor DarkGray
+  Write-Host "  Stack Docker laissee active (Postgres + Keycloak + extras n8n/Redis/MailHog si UP)." -ForegroundColor DarkGray
 } else {
   Write-Host ""
   Push-Location $RepoRoot
@@ -90,8 +92,8 @@ if ($KeepDocker) {
       Write-Host "  Suppression des conteneurs (volumes preserves)..." -ForegroundColor DarkGray
       $r = Invoke-Docker compose --profile extras down
     } else {
-      Write-Host "  Stop des conteneurs Docker (conteneurs + volumes preserves)..." -ForegroundColor DarkGray
-      $r = Invoke-Docker compose stop
+      Write-Host "  Stop des conteneurs Docker incluant extras (conteneurs + volumes preserves)..." -ForegroundColor DarkGray
+      $r = Invoke-Docker compose --profile extras stop
     }
     if ($r.ExitCode -ne 0) {
       Write-Host "  [WARN] docker compose a renvoye exit $($r.ExitCode):" -ForegroundColor Yellow
