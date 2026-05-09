@@ -217,6 +217,41 @@ docker exec -it matix-postgres psql -U matix_admin -d matix
 | Équipe | http://localhost:3000/settings/team | oui (admin+) |
 | **Workflows admin Matix** | http://localhost:3000/admin/workflows | oui (super-admin TODO) |
 | Tenants admin | http://localhost:3000/admin/tenants | oui (super-admin TODO) |
+| **n8n editor (canvas visuel)** | http://localhost:5678 | oui (compte owner n8n créé au /setup) |
+
+---
+
+## 🎨 Voir un workflow visuellement (canvas n8n)
+
+L'UI Matix `/admin/workflows` montre les **métadonnées** d'un template (code, nom, modules requis, etc.). Pour voir le **canvas visuel** (nodes Webhook → HTTP Request → Email → ...), il faut passer par n8n directement :
+
+### URL : http://localhost:5678
+
+Login avec ton compte owner n8n (créé au `/setup` au premier démarrage).
+
+### Importer un workflow pour le visualiser
+
+```
+n8n UI → Workflows → "+" → Import from File
+```
+
+| JSON | Description | Nodes |
+|---|---|---|
+| `infra/n8n-workflows/templates-strategy-c/daily-cash-report-template.json` | **Pattern Stratégie C** (paramétré multi-tenant via webhook) | 5 |
+| `infra/n8n-workflows/mata-banq-report.json` | Legacy Mata (Schedule + URLs hardcodées) | 5 |
+| `infra/n8n-workflows/mlc-daily-report.json` | Legacy MLC (Schedule 4h30) | 7 |
+| `infra/n8n-workflows/mata-agent-webhook.json` | **Le gros** (webhook + 16 APIs agrégées) | 36 |
+
+> Pour comprendre le pattern Stratégie C → importer `daily-cash-report-template.json` en premier. Tu verras Webhook → HTTP Request paramétré → Format → Email → Respond.
+
+### Configurer SMTP dans le node Send Email
+
+Pour tester en dev sans envoyer de vrais mails :
+- Host : `mailhog` (ou `localhost` si tu testes hors Docker)
+- Port : `1025`
+- No auth
+
+→ Les mails arriveront dans MailHog UI : http://localhost:8025
 
 ---
 
