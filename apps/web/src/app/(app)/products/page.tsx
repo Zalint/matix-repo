@@ -5,18 +5,21 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type Product } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { useToast } from '@/components/ui/toast';
 
 export default function ProductsPage() {
   const auth = useAuth();
+  const toast = useToast();
   const [items, setItems] = useState<Product[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const reload = () => {
     if (!auth.ready) return;
-    setError(null);
-    api.products.list(auth).then(setItems).catch((e) => setError(e.message));
+    api.products
+      .list(auth)
+      .then(setItems)
+      .catch((e) => toast.error(e.message ?? String(e), { title: 'Chargement' }));
   };
 
   useEffect(reload, [auth]);
@@ -25,7 +28,6 @@ export default function ProductsPage() {
     e.preventDefault();
     if (!auth.ready) return;
     setBusy(true);
-    setError(null);
     const f = e.currentTarget;
     const fd = new FormData(f);
     try {
@@ -36,9 +38,10 @@ export default function ProductsPage() {
       });
       f.reset();
       setShowForm(false);
+      toast.success('Produit cree.');
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err), { title: 'Creation' });
     } finally {
       setBusy(false);
     }
@@ -46,12 +49,19 @@ export default function ProductsPage() {
 
   async function handleDelete(id: string) {
     if (!auth.ready) return;
-    if (!confirm('Supprimer ce produit ?')) return;
+    const ok = await toast.confirm({
+      title: 'Supprimer ce produit ?',
+      message: 'Cette action est definitive.',
+      confirmLabel: 'Supprimer',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.products.remove(auth, id);
+      toast.success('Produit supprime.');
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err), { title: 'Suppression' });
     }
   }
 
@@ -65,8 +75,6 @@ export default function ProductsPage() {
         <h2 className="text-2xl font-semibold">Produits — {tenantLabel}</h2>
         <Button onClick={() => setShowForm((v) => !v)}>{showForm ? 'Annuler' : 'Nouveau produit'}</Button>
       </div>
-
-      {error && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
       {showForm && (
         <form onSubmit={handleCreate} className="grid grid-cols-1 gap-3 rounded-md border bg-white p-4 sm:grid-cols-4">

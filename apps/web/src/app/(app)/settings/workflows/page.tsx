@@ -12,6 +12,7 @@ import {
   type WorkflowTemplate,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { useToast } from '@/components/ui/toast';
 
 const CONTACT_EMAIL = 'commercial@matix.io';
 
@@ -26,10 +27,9 @@ const CONTACT_EMAIL = 'commercial@matix.io';
  */
 export default function TenantWorkflowsPage() {
   const auth = useAuth();
+  const toast = useToast();
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
   const [instances, setInstances] = useState<TenantWorkflowInstance[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   // Modale activation : selection du template + premiers settings
@@ -52,7 +52,6 @@ export default function TenantWorkflowsPage() {
 
   const reload = () => {
     if (!auth.ready) return;
-    setError(null);
     Promise.all([
       api.tenantWorkflows.listTemplates(auth),
       api.tenantWorkflows.listInstances(auth),
@@ -61,7 +60,9 @@ export default function TenantWorkflowsPage() {
         setTemplates(t);
         setInstances(i);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e) =>
+        toast.error(e instanceof Error ? e.message : String(e), { title: 'Chargement' }),
+      );
   };
 
   useEffect(reload, [auth]);
@@ -91,7 +92,6 @@ export default function TenantWorkflowsPage() {
       if (s.default !== undefined) defaults[s.key] = s.default;
     }
     setActivateValues(defaults);
-    setError(null);
     setActivateOpen(true);
   }
 
@@ -99,17 +99,16 @@ export default function TenantWorkflowsPage() {
     e.preventDefault();
     if (!auth.ready || !activatingTemplate) return;
     setBusy(true);
-    setError(null);
     try {
       await api.tenantWorkflows.activate(auth, {
         template_code: activatingTemplate.code,
         custom_settings: activateValues,
       });
-      setSuccess(`Workflow "${activatingTemplate.name}" active.`);
+      toast.success(`Workflow "${activatingTemplate.name}" active.`);
       setActivateOpen(false);
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err), { title: 'Activation' });
     } finally {
       setBusy(false);
     }
@@ -119,7 +118,6 @@ export default function TenantWorkflowsPage() {
   function openConfigure(instance: TenantWorkflowInstance) {
     setConfigInstance(instance);
     setConfigValues({ ...(instance.custom_settings ?? {}) });
-    setError(null);
     setConfigOpen(true);
   }
 
@@ -127,14 +125,13 @@ export default function TenantWorkflowsPage() {
     e.preventDefault();
     if (!auth.ready || !configInstance) return;
     setBusy(true);
-    setError(null);
     try {
       await api.tenantWorkflows.updateSettings(auth, configInstance.id, configValues);
-      setSuccess(`Parametres "${configInstance.template_name}" mis a jour.`);
+      toast.success(`Parametres "${configInstance.template_name}" mis a jour.`);
       setConfigOpen(false);
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err), { title: 'Configuration' });
     } finally {
       setBusy(false);
     }
@@ -143,14 +140,15 @@ export default function TenantWorkflowsPage() {
   // ---------- Trigger ----------
   async function handleTrigger(instance: TenantWorkflowInstance) {
     if (!auth.ready) return;
-    setError(null);
     setBusy(true);
     try {
       await api.tenantWorkflows.trigger(auth, instance.id);
-      setSuccess(`Execution lancee pour "${instance.template_name}".`);
+      toast.success(`Execution lancee pour "${instance.template_name}".`);
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err), {
+        title: 'Lancement manuel',
+      });
     } finally {
       setBusy(false);
     }
@@ -159,20 +157,39 @@ export default function TenantWorkflowsPage() {
   // ---------- Disable ----------
   async function handleDisable(instance: TenantWorkflowInstance) {
     if (!auth.ready) return;
-    if (
-      !window.confirm(
-        `Desactiver "${instance.template_name}" ? Le workflow ne s'executera plus automatiquement, mais l'historique est conserve.`,
-      )
-    ) {
-      return;
-    }
-    setError(null);
+    const ok = await toast.confirm({
+      title: `Desactiver "${instance.template_name}" ?`,
+      message:
+        "Le workflow ne s'executera plus automatiquement, mais l'historique est conserve.",
+      confirmLabel: 'Desactiver',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.tenantWorkflows.disable(auth, instance.id);
-      setSuccess(`"${instance.template_name}" desactive.`);
+      toast.success(`"${instance.template_name}" desactive.`);
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err), {
+        title: 'Desactivation',
+      });
+    }
+  }
+
+  // ---------- Enable (reactivation) ----------
+  async function handleEnable(instance: TenantWorkflowInstance) {
+    if (!auth.ready) return;
+    setBusy(true);
+    try {
+      await api.tenantWorkflows.enable(auth, instance.id);
+      toast.success(`"${instance.template_name}" reactive.`);
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err), {
+        title: 'Reactivation',
+      });
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -186,7 +203,9 @@ export default function TenantWorkflowsPage() {
     api.tenantWorkflows
       .listRuns(auth, instance.id)
       .then(setHistory)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .catch((e) =>
+        toast.error(e instanceof Error ? e.message : String(e), { title: 'Historique' }),
+      )
       .finally(() => setHistoryLoading(false));
   }
 
@@ -201,11 +220,6 @@ export default function TenantWorkflowsPage() {
           (rapports quotidiens, notifications, etc.).
         </p>
       </div>
-
-      {error && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-      {success && (
-        <div className="rounded-md bg-green-50 p-3 text-sm text-green-700">{success}</div>
-      )}
 
       {/* ----- Mes workflows actifs ----- */}
       <section>
@@ -227,6 +241,7 @@ export default function TenantWorkflowsPage() {
                   onConfigure={() => openConfigure(inst)}
                   onTrigger={() => handleTrigger(inst)}
                   onDisable={() => handleDisable(inst)}
+                  onEnable={() => handleEnable(inst)}
                   onHistory={() => openHistory(inst)}
                 />
               );
@@ -432,6 +447,7 @@ function InstanceCard({
   onConfigure,
   onTrigger,
   onDisable,
+  onEnable,
   onHistory,
 }: {
   instance: TenantWorkflowInstance;
@@ -440,6 +456,7 @@ function InstanceCard({
   onConfigure: () => void;
   onTrigger: () => void;
   onDisable: () => void;
+  onEnable: () => void;
   onHistory: () => void;
 }) {
   const settings = template?.configurable_settings ?? [];
@@ -494,15 +511,26 @@ function InstanceCard({
         <Button size="sm" variant="ghost" onClick={onHistory}>
           Historique
         </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={onDisable}
-          disabled={!instance.enabled}
-          className="ml-auto text-red-600 hover:bg-red-50"
-        >
-          Desactiver
-        </Button>
+        {instance.enabled ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onDisable}
+            disabled={busy}
+            className="ml-auto text-red-600 hover:bg-red-50"
+          >
+            Desactiver
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            onClick={onEnable}
+            disabled={busy}
+            className="ml-auto"
+          >
+            Reactiver
+          </Button>
+        )}
       </div>
     </div>
   );

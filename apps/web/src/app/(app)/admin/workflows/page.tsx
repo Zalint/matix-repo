@@ -13,6 +13,7 @@ import {
   type UpdateWorkflowTemplateInput,
   type WorkflowTemplate,
 } from '@/lib/api';
+import { useToast } from '@/components/ui/toast';
 
 type FormState = {
   code: string;
@@ -48,11 +49,10 @@ const EMPTY_FORM: FormState = {
  * Phase 1+ par un guard super-admin Matix (cf. workflow-templates.controller.ts).
  */
 export default function AdminWorkflowsPage() {
+  const toast = useToast();
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
   const [catalog, setCatalog] = useState<ModuleDefinition[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   // Modale create/update
@@ -62,11 +62,12 @@ export default function AdminWorkflowsPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
 
   const reload = () => {
-    setError(null);
     api.adminWorkflowTemplates
       .list()
       .then(setTemplates)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e) =>
+        toast.error(e instanceof Error ? e.message : String(e), { title: 'Chargement' }),
+      );
   };
 
   useEffect(() => {
@@ -81,7 +82,6 @@ export default function AdminWorkflowsPage() {
     setEditorMode('create');
     setEditingId(null);
     setForm(EMPTY_FORM);
-    setError(null);
     setEditorOpen(true);
   }
 
@@ -99,15 +99,12 @@ export default function AdminWorkflowsPage() {
         ? JSON.stringify(tpl.n8n_definition, null, 2)
         : '',
     });
-    setError(null);
     setEditorOpen(true);
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
-    setError(null);
-    setSuccess(null);
 
     let parsedSettings: ConfigurableSetting[];
     try {
@@ -116,7 +113,10 @@ export default function AdminWorkflowsPage() {
         throw new Error('configurable_settings doit etre un tableau JSON');
       }
     } catch (err) {
-      setError(`JSON invalide pour configurable_settings : ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(
+        `JSON invalide pour configurable_settings : ${err instanceof Error ? err.message : String(err)}`,
+        { title: 'Validation' },
+      );
       setBusy(false);
       return;
     }
@@ -127,7 +127,10 @@ export default function AdminWorkflowsPage() {
       try {
         parsedDefinition = JSON.parse(form.n8n_definition_json);
       } catch (err) {
-        setError(`JSON invalide pour n8n_definition : ${err instanceof Error ? err.message : String(err)}`);
+        toast.error(
+          `JSON invalide pour n8n_definition : ${err instanceof Error ? err.message : String(err)}`,
+          { title: 'Validation' },
+        );
         setBusy(false);
         return;
       }
@@ -145,7 +148,7 @@ export default function AdminWorkflowsPage() {
           n8n_definition: parsedDefinition,
         };
         const created = await api.adminWorkflowTemplates.create(body);
-        setSuccess(`Template "${created.code}" cree.`);
+        toast.success(`Template "${created.code}" cree.`);
       } else if (editingId) {
         const body: UpdateWorkflowTemplateInput = {
           name: form.name.trim(),
@@ -156,39 +159,42 @@ export default function AdminWorkflowsPage() {
           n8n_definition: parsedDefinition,
         };
         const updated = await api.adminWorkflowTemplates.update(editingId, body);
-        setSuccess(`Template "${updated.code}" mis a jour.`);
+        toast.success(`Template "${updated.code}" mis a jour.`);
       }
       setEditorOpen(false);
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err), { title: 'Enregistrement' });
     } finally {
       setBusy(false);
     }
   }
 
   async function handleToggleActive(tpl: WorkflowTemplate) {
-    setError(null);
     try {
       await api.adminWorkflowTemplates.setActive(tpl.id, !tpl.is_active);
-      setSuccess(`Template "${tpl.code}" ${!tpl.is_active ? 'reactive' : 'desactive'}.`);
+      toast.success(`Template "${tpl.code}" ${!tpl.is_active ? 'reactive' : 'desactive'}.`);
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err), { title: 'Statut template' });
     }
   }
 
   async function handleDelete(tpl: WorkflowTemplate) {
-    if (!window.confirm(`Supprimer le template "${tpl.code}" ? Cette action est irreversible et supprimera toutes les instances tenant associees.`)) {
-      return;
-    }
-    setError(null);
+    const ok = await toast.confirm({
+      title: `Supprimer "${tpl.code}" ?`,
+      message:
+        'Cette action est irreversible et supprimera toutes les instances tenant associees.',
+      confirmLabel: 'Supprimer',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.adminWorkflowTemplates.remove(tpl.id);
-      setSuccess(`Template "${tpl.code}" supprime.`);
+      toast.success(`Template "${tpl.code}" supprime.`);
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err), { title: 'Suppression' });
     }
   }
 
@@ -220,9 +226,6 @@ export default function AdminWorkflowsPage() {
         </div>
         <Button onClick={openCreate}>Creer un template</Button>
       </div>
-
-      {error && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-      {success && <div className="rounded-md bg-green-50 p-3 text-sm text-green-700">{success}</div>}
 
       <div className="overflow-x-auto rounded-md border border-gray-200 bg-white">
         <table className="min-w-full divide-y divide-gray-200 text-sm">

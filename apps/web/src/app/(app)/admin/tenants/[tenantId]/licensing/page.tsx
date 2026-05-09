@@ -10,6 +10,7 @@ import {
   type TenantLicense,
   type Pillar,
 } from '@/lib/api';
+import { useToast } from '@/components/ui/toast';
 
 const PILLAR_LABELS: Record<Pillar, string> = {
   platform: 'Plateforme',
@@ -26,24 +27,29 @@ export default function AdminTenantLicensingPage({
   params: Promise<{ tenantId: string }>;
 }) {
   const { tenantId } = use(params);
+  const toast = useToast();
 
   const [catalog, setCatalog] = useState<ModuleDefinition[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [licenses, setLicenses] = useState<TenantLicense[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const reload = () => {
     api.adminLicensing
       .listForTenant(tenantId)
       .then(setLicenses)
-      .catch((e) => setError(e.message));
+      .catch((e) => toast.error(e.message ?? String(e), { title: 'Chargement licences' }));
   };
 
   useEffect(() => {
-    api.licensing.catalog().then(setCatalog).catch((e) => setError(e.message));
-    api.licensing.plans().then(setPlans).catch((e) => setError(e.message));
+    api.licensing
+      .catalog()
+      .then(setCatalog)
+      .catch((e) => toast.error(e.message ?? String(e), { title: 'Catalogue' }));
+    api.licensing
+      .plans()
+      .then(setPlans)
+      .catch((e) => toast.error(e.message ?? String(e), { title: 'Plans' }));
     reload();
   }, [tenantId]);
 
@@ -53,28 +59,30 @@ export default function AdminTenantLicensingPage({
   );
 
   async function handleAssignPlan(planCode: string) {
-    if (!confirm(`Assigner le plan "${planCode}" à ce tenant ?\nCela rematérialise les licences source='plan'.`)) return;
+    const ok = await toast.confirm({
+      title: `Assigner le plan "${planCode}" ?`,
+      message: "Cela rematerialise les licences source='plan'.",
+      confirmLabel: 'Assigner',
+    });
+    if (!ok) return;
     setBusy(true);
-    setError(null);
-    setSuccess(null);
     try {
       await api.adminLicensing.assignPlan(tenantId, planCode);
-      setSuccess(`Plan "${planCode}" assigné.`);
+      toast.success(`Plan "${planCode}" assigne.`);
       reload();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      toast.error(e instanceof Error ? e.message : String(e), { title: 'Assignation' });
     } finally {
       setBusy(false);
     }
   }
 
   async function handleToggleModule(moduleCode: string, currentEnabled: boolean) {
-    setError(null);
     try {
       await api.adminLicensing.toggleModule(tenantId, moduleCode, !currentEnabled);
       reload();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      toast.error(e instanceof Error ? e.message : String(e), { title: 'Module' });
     }
   }
 
@@ -98,9 +106,6 @@ export default function AdminTenantLicensingPage({
         <h2 className="text-2xl font-semibold">Licences du tenant</h2>
         <p className="text-sm text-gray-500 font-mono">{tenantId}</p>
       </div>
-
-      {error && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-      {success && <div className="rounded-md bg-green-50 p-3 text-sm text-green-700">{success}</div>}
 
       {/* Plans */}
       <section className="space-y-3">

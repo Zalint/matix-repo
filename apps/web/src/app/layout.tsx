@@ -3,6 +3,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import './globals.css';
 import { AuthProvider } from '@/lib/auth-context';
+import { ToastProvider } from '@/components/ui/toast';
 
 export const metadata: Metadata = {
   title: 'Matix',
@@ -17,7 +18,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang={locale} suppressHydrationWarning>
       <body suppressHydrationWarning>
         <NextIntlClientProvider locale={locale} messages={messages}>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <ToastProvider>{children}</ToastProvider>
+          </AuthProvider>
         </NextIntlClientProvider>
       </body>
     </html>

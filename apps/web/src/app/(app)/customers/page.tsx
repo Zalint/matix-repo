@@ -5,19 +5,22 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type Customer } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { useToast } from '@/components/ui/toast';
 
 export default function CustomersPage() {
   const auth = useAuth();
+  const toast = useToast();
   const [items, setItems] = useState<Customer[]>([]);
   const [search, setSearch] = useState('');
-  const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const reload = (q?: string) => {
     if (!auth.ready) return;
-    setError(null);
-    api.customers.list(auth, q).then(setItems).catch((e) => setError(e.message));
+    api.customers
+      .list(auth, q)
+      .then(setItems)
+      .catch((e) => toast.error(e.message ?? String(e), { title: 'Chargement' }));
   };
 
   useEffect(() => reload(), [auth]);
@@ -26,7 +29,6 @@ export default function CustomersPage() {
     e.preventDefault();
     if (!auth.ready) return;
     setBusy(true);
-    setError(null);
     const f = e.currentTarget;
     const fd = new FormData(f);
     try {
@@ -39,9 +41,10 @@ export default function CustomersPage() {
       });
       f.reset();
       setShowForm(false);
+      toast.success('Client cree.');
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err), { title: 'Creation' });
     } finally {
       setBusy(false);
     }
@@ -49,12 +52,19 @@ export default function CustomersPage() {
 
   async function handleDelete(id: string) {
     if (!auth.ready) return;
-    if (!confirm('Supprimer ce client ?')) return;
+    const ok = await toast.confirm({
+      title: 'Supprimer ce client ?',
+      message: 'Cette action est definitive.',
+      confirmLabel: 'Supprimer',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.customers.remove(auth, id);
+      toast.success('Client supprime.');
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err), { title: 'Suppression' });
     }
   }
 
@@ -83,8 +93,6 @@ export default function CustomersPage() {
           Rechercher
         </Button>
       </div>
-
-      {error && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
       {showForm && (
         <form onSubmit={handleCreate} className="grid grid-cols-1 gap-3 rounded-md border bg-white p-4 sm:grid-cols-3">

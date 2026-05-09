@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, ROLE_LABELS, type TeamMember, type TenantRole } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { useToast } from '@/components/ui/toast';
 
 const ALL_ROLES: TenantRole[] = ['owner', 'admin', 'superviseur', 'member', 'readonly'];
 const ROLE_LEVELS: Record<TenantRole, number> = {
@@ -13,9 +14,8 @@ const ROLE_LEVELS: Record<TenantRole, number> = {
 
 export default function TeamPage() {
   const auth = useAuth();
+  const toast = useToast();
   const [members, setMembers] = useState<TeamMember[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -35,8 +35,10 @@ export default function TeamPage() {
 
   const reload = () => {
     if (!auth.ready) return;
-    setError(null);
-    api.team.list(auth).then(setMembers).catch((e) => setError(e.message));
+    api.team
+      .list(auth)
+      .then(setMembers)
+      .catch((e) => toast.error(e.message ?? String(e), { title: 'Chargement' }));
   };
 
   useEffect(reload, [auth]);
@@ -45,8 +47,6 @@ export default function TeamPage() {
     e.preventDefault();
     if (!auth.ready) return;
     setBusy(true);
-    setError(null);
-    setSuccess(null);
     const f = e.currentTarget;
     const fd = new FormData(f);
     try {
@@ -59,10 +59,10 @@ export default function TeamPage() {
       });
       f.reset();
       setShowForm(false);
-      setSuccess(`Membre ${created.email} ajouté avec le rôle ${ROLE_LABELS[created.role]}.`);
+      toast.success(`Membre ${created.email} ajoute avec le role ${ROLE_LABELS[created.role]}.`);
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err), { title: 'Invitation' });
     } finally {
       setBusy(false);
     }
@@ -70,24 +70,30 @@ export default function TeamPage() {
 
   async function handleChangeRole(userId: string, newRole: TenantRole) {
     if (!auth.ready) return;
-    setError(null);
     try {
       await api.team.updateRole(auth, userId, newRole);
+      toast.success(`Role mis a jour : ${ROLE_LABELS[newRole]}.`);
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err), { title: 'Changement de role' });
     }
   }
 
   async function handleRemove(userId: string, email: string) {
     if (!auth.ready) return;
-    if (!confirm(`Retirer ${email} du tenant ?`)) return;
-    setError(null);
+    const ok = await toast.confirm({
+      title: `Retirer ${email} ?`,
+      message: "L'utilisateur perdra l'acces a ce tenant.",
+      confirmLabel: 'Retirer',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.team.remove(auth, userId);
+      toast.success(`${email} retire du tenant.`);
       reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err), { title: 'Suppression' });
     }
   }
 
@@ -108,9 +114,6 @@ export default function TeamPage() {
           </Button>
         )}
       </div>
-
-      {error && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-      {success && <div className="rounded-md bg-green-50 p-3 text-sm text-green-700">{success}</div>}
 
       {showForm && canCreate && (
         <form onSubmit={handleCreate} className="rounded-md border bg-white p-5 space-y-4">
