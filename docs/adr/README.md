@@ -10,6 +10,8 @@ Décisions structurelles de Matix. Format : [MADR-light](https://adr.github.io/m
 | [0004](0004-pilier-commercial-domain.md) | Schéma de domaine du Pilier Commercial (Sales/POS, Inventory, Invoicing, Payments) | Proposed |
 | [0005](0005-module-catalog.md) | Catalogue des modules Matix | Proposed |
 | [0006](0006-licensing-permissions.md) | Licensing & Permissions (orthogonal) | Proposed |
+| [0007](0007-catalog-deepaudit-update.md) | Mise à jour catalogue après audit approfondi | Proposed |
+| [0008](0008-stock-soir-modes.md) | Stock soir : deux modes (manuel/automatique) + cron carry-over | Proposed |
 
 ## Convention
 

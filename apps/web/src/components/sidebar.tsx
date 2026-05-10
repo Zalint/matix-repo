@@ -16,6 +16,8 @@ export function Sidebar() {
   ];
   const OPERATIONS_NAV = [
     { href: '/operations/inventory', label: 'Stock' },
+    { href: '/operations/inventory/daily', label: 'Stock soir (saisie)' },
+    { href: '/operations/reconciliation', label: 'Réconciliation' },
   ];
   const SETTINGS_NAV = [
     { href: '/settings/team', label: 'Équipe' },
@@ -55,7 +57,18 @@ export function Sidebar() {
           Opérations
         </div>
         {OPERATIONS_NAV.map((item) => {
-          const active = pathname?.startsWith(item.href);
+          // Match strictement la route + sous-routes du SEGMENT, sinon
+          // /operations/inventory resterait actif sur /operations/inventory/daily.
+          const active =
+            pathname === item.href ||
+            // sous-route uniquement si pas un autre item plus precis ne match
+            (pathname?.startsWith(item.href + '/') &&
+              !OPERATIONS_NAV.some(
+                (other) =>
+                  other.href !== item.href &&
+                  other.href.startsWith(item.href + '/') &&
+                  pathname?.startsWith(other.href),
+              ));
           return (
             <Link
               key={item.href}

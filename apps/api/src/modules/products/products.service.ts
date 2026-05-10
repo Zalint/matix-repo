@@ -2,17 +2,20 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
 import { getTenantPgClient } from '../../common/tenant-tx.interceptor';
 
+export type StockMode = 'manuel' | 'automatique';
+
 export type Product = {
   id: string;
   sku: string;
   name: string;
   unit_price: string; // numeric → string par défaut côté pg
   category_id: string | null;
+  stock_mode: StockMode;
   created_at: string;
   updated_at: string;
 };
 
-const COLS = `id, sku, name, unit_price, category_id, created_at, updated_at`;
+const COLS = `id, sku, name, unit_price, category_id, stock_mode, created_at, updated_at`;
 
 /**
  * Service Products — POC du pattern multi-tenant RLS.
@@ -95,6 +98,25 @@ export class ProductsService {
         setCategory ? patch.category_id ?? null : null,
         setCategory,
       ],
+    );
+    if (rows.length === 0) throw new NotFoundException('Produit introuvable');
+    return rows[0];
+  }
+
+  /**
+   * Bascule le mode de gestion du stock soir d'un produit.
+   *  - 'manuel'      : l'utilisateur saisit le stock soir chaque jour (defaut Boucherie)
+   *  - 'automatique' : le systeme calcule (defaut autres familles)
+   */
+  async setStockMode(id: string, mode: StockMode): Promise<Product> {
+    const client = getTenantPgClient(this.cls);
+    const { rows } = await client.query<Product>(
+      `UPDATE products
+          SET stock_mode = $2,
+              updated_at = NOW()
+        WHERE id = $1 AND deleted_at IS NULL
+        RETURNING ${COLS}`,
+      [id, mode],
     );
     if (rows.length === 0) throw new NotFoundException('Produit introuvable');
     return rows[0];

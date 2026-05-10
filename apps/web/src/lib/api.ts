@@ -41,12 +41,72 @@ async function apiFetch<T>(auth: AuthState, path: string, init: RequestInit = {}
 }
 
 // ---- Types ----
+export type StockMode = 'manuel' | 'automatique';
+
 export type Product = {
   id: string;
   sku: string;
   name: string;
   unit_price: string;
   category_id: string | null;
+  stock_mode: StockMode;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DailyClosingView = {
+  product: {
+    id: string;
+    sku: string;
+    name: string;
+    stock_mode: StockMode;
+    category_id: string | null;
+    category_name: string | null;
+    category_family: string | null;
+  };
+  point_of_sale: {
+    id: string;
+    code: string;
+    name: string;
+  };
+  figures: {
+    stock_matin: number;
+    ventes_qte: number;
+    transferts_in: number;
+    transferts_out: number;
+    adjustments: number;
+    retours: number;
+    stock_theorique: number;
+  };
+  closing: {
+    id: string;
+    quantity: number;
+    quantity_theorique: number;
+    source: 'auto' | 'manual';
+    last_auto_at: string | null;
+    set_at: string;
+  } | null;
+};
+
+export type DailyClosingRecord = {
+  id: string;
+  closing_date: string;
+  point_of_sale_id: string;
+  product_id: string;
+  quantity: string;
+  quantity_theorique: string;
+  source: 'auto' | 'manual';
+  last_auto_at: string | null;
+  set_by: string | null;
+  set_at: string;
+};
+
+export type ReconciliationNote = {
+  id: string;
+  note_date: string;
+  point_of_sale_id: string;
+  body: string;
+  set_by: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -435,6 +495,11 @@ export const api = {
       id: string,
       body: Partial<{ name: string; unit_price: number; category_id: string | null }>,
     ) => apiFetch<Product>(a, `/products/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    setStockMode: (a: AuthState, id: string, mode: StockMode) =>
+      apiFetch<Product>(a, `/products/${id}/stock-mode`, {
+        method: 'PATCH',
+        body: JSON.stringify({ mode }),
+      }),
     remove: (a: AuthState, id: string) =>
       apiFetch<void>(a, `/products/${id}`, { method: 'DELETE' }),
   },
@@ -494,6 +559,52 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(body),
       }),
+    dailyClosing: {
+      list: (a: AuthState, opts: { date: string; point_of_sale_id?: string }) => {
+        const qs = new URLSearchParams({ date: opts.date });
+        if (opts.point_of_sale_id) qs.set('point_of_sale_id', opts.point_of_sale_id);
+        return apiFetch<DailyClosingView[]>(a, `/inventory/daily-closing?${qs}`);
+      },
+      setManual: (
+        a: AuthState,
+        body: {
+          closing_date: string;
+          point_of_sale_id: string;
+          product_id: string;
+          quantity: number;
+        },
+      ) =>
+        apiFetch<DailyClosingRecord>(a, '/inventory/daily-closing', {
+          method: 'PUT',
+          body: JSON.stringify(body),
+        }),
+      recomputeAuto: (
+        a: AuthState,
+        body: { closing_date: string; point_of_sale_id?: string },
+      ) =>
+        apiFetch<{ updated: number }>(a, '/inventory/daily-closing/recompute-auto', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      getNote: (a: AuthState, opts: { date: string; point_of_sale_id: string }) => {
+        const qs = new URLSearchParams({
+          date: opts.date,
+          point_of_sale_id: opts.point_of_sale_id,
+        });
+        return apiFetch<ReconciliationNote | null>(
+          a,
+          `/inventory/daily-closing/notes?${qs}`,
+        );
+      },
+      setNote: (
+        a: AuthState,
+        body: { note_date: string; point_of_sale_id: string; body: string },
+      ) =>
+        apiFetch<ReconciliationNote>(a, '/inventory/daily-closing/notes', {
+          method: 'PUT',
+          body: JSON.stringify(body),
+        }),
+    },
   },
   sales: {
     list: (a: AuthState, opts?: { status?: SaleStatus; limit?: number; offset?: number }) => {

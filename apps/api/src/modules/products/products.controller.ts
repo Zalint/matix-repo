@@ -10,8 +10,8 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsNumber, IsOptional, IsString, IsUUID, Min, ValidateIf } from 'class-validator';
-import { ProductsService } from './products.service';
+import { IsIn, IsNumber, IsOptional, IsString, IsUUID, Min, ValidateIf } from 'class-validator';
+import { ProductsService, type StockMode } from './products.service';
 
 class CreateProductDto {
   @IsString() sku!: string;
@@ -25,6 +25,10 @@ class UpdateProductDto {
   @IsOptional() @IsNumber() @Min(0) unit_price?: number;
   // category_id peut être null pour retirer la catégorie
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsUUID() category_id?: string | null;
+}
+
+class SetStockModeDto {
+  @IsIn(['manuel', 'automatique']) mode!: StockMode;
 }
 
 @Controller('products')
@@ -49,6 +53,15 @@ export class ProductsController {
   @Patch(':id')
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateProductDto) {
     return this.products.update(id, dto);
+  }
+
+  /** Bascule le mode de gestion du stock soir : manuel <-> automatique. */
+  @Patch(':id/stock-mode')
+  setStockMode(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetStockModeDto,
+  ) {
+    return this.products.setStockMode(id, dto.mode);
   }
 
   @Delete(':id')
