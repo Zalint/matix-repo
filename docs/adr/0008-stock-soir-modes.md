@@ -81,7 +81,7 @@ Module licensing : `commercial.sales.reconciliation` (passé de `coming-soon` à
 - Le carry-over évite la double saisie matin/soir, un point de friction connu sur Maas App.
 
 **À surveiller**
-- La page `/operations/inventory/daily` charge un CROSS JOIN products × points_of_sale. Au-delà de ~2000 produits × 5 PV, il faudra paginer ou filtrer par catégorie. À surveiller dès le déploiement chez Mata.
+- La page `/operations/inventory/daily` charge un CROSS JOIN products × points_of_sale. Postgres encaisse, mais le rendu DOM côté React est le vrai goulot à grande échelle. Mitigation déjà en place : virtualisation via `@tanstack/react-virtual` (seules ~30 lignes rendues à un instant donné, scroll fluide jusqu'à 100k lignes). Si on atteint des limites au-delà, on ajoutera un filtre catégorie + "non-saisis seulement".
 - Si un PV est désactivé en cours de journée, ses lignes restent dans `stock_daily_closings` mais n'apparaissent plus dans la vue (filtre `is_active`). C'est volontaire mais à documenter dans le runbook.
 - Le cron tourne en mémoire (`setInterval`). Pour la haute dispo on devra basculer vers BullMQ ou pg-boss quand on aura plusieurs instances API. Pour l'instant single-instance c'est OK.
 

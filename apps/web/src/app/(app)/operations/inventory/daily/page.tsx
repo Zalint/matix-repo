@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/toast';
@@ -10,6 +11,20 @@ import {
   type PointOfSale,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+
+/**
+ * Template de colonnes partage entre header et body. Modifier ici impacte les
+ * deux ensembles. Minimum 200px sur "Produit", le reste fixe pour aligner.
+ */
+const GRID_COLS =
+  'grid-cols-[minmax(200px,2fr)_110px_100px_90px_90px_100px_120px_150px_70px]';
+
+/**
+ * Hauteur estimee d'une ligne en pixels. Une ligne typique a 2 lignes de texte
+ * (nom produit + sku/famille) + py-2 = ~56px. La virtualization tolere
+ * legerement plus si une ligne deborde, on overscan a 5.
+ */
+const ROW_HEIGHT = 56;
 
 /**
  * /operations/inventory/daily — saisie quotidienne du stock soir.
@@ -253,6 +268,19 @@ export default function DailyClosingPage() {
     URL.revokeObjectURL(url);
   }
 
+  // ---------- Virtualization ----------
+  // Le tableau peut afficher des milliers de lignes (CROSS JOIN products * pos).
+  // On rend uniquement les ~30 visibles a l'ecran via @tanstack/react-virtual.
+  const scrollParentRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 8,
+  });
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
+
   // ---------- Stats ----------
   const stats = useMemo(() => {
     let saisi = 0;
@@ -330,44 +358,77 @@ export default function DailyClosingPage() {
         />
       </div>
 
-      {/* Tableau */}
-      <div className="overflow-x-auto rounded-md border border-gray-200 bg-white">
-        <table className="min-w-full divide-y divide-gray-200 text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              <Th>Produit</Th>
-              <Th>Mode</Th>
-              <Th className="text-right">Stock matin</Th>
-              <Th className="text-right">Ventes</Th>
-              <Th className="text-right">T+ / T-</Th>
-              <Th className="text-right">Theorique</Th>
-              <Th className="text-right">Stock soir</Th>
-              <Th>Source / Ecart</Th>
-              <Th className="w-20">{' '}</Th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
-                  Aucun produit
-                </td>
-              </tr>
+      {/* Grille virtualisee */}
+      <div className="rounded-md border border-gray-200 bg-white">
+        {/* Conteneur de scroll. min-width force l'apparition du scroll horizontal
+            sur ecrans etroits sans casser la grille. */}
+        <div
+          ref={scrollParentRef}
+          className="h-[640px] overflow-auto"
+          role="grid"
+          aria-rowcount={rows.length}
+        >
+          <div className="min-w-[1030px]">
+            {/* Header sticky : meme template de colonnes que les lignes */}
+            <div
+              role="row"
+              className={`sticky top-0 z-10 grid ${GRID_COLS} border-b border-gray-200 bg-gray-50 text-sm`}
+            >
+              <Cell role="columnheader">Produit</Cell>
+              <Cell role="columnheader">Mode</Cell>
+              <Cell role="columnheader" align="right">Stock matin</Cell>
+              <Cell role="columnheader" align="right">Ventes</Cell>
+              <Cell role="columnheader" align="right">T+ / T-</Cell>
+              <Cell role="columnheader" align="right">Theorique</Cell>
+              <Cell role="columnheader" align="right">Stock soir</Cell>
+              <Cell role="columnheader">Source / Ecart</Cell>
+              <Cell role="columnheader">{' '}</Cell>
+            </div>
+
+            {/* Body virtualise */}
+            {rows.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-gray-400">
+                Aucun produit
+              </div>
+            ) : (
+              <div
+                style={{
+                  height: totalSize,
+                  position: 'relative',
+                  width: '100%',
+                }}
+              >
+                {virtualItems.map((virtual) => {
+                  const r = rows[virtual.index];
+                  return (
+                    <div
+                      key={r.product.id}
+                      data-index={virtual.index}
+                      ref={rowVirtualizer.measureElement}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtual.start}px)`,
+                      }}
+                    >
+                      <Row
+                        row={r}
+                        draft={drafts[r.product.id] ?? ''}
+                        onChange={(v) =>
+                          setDrafts((d) => ({ ...d, [r.product.id]: v }))
+                        }
+                        onSave={() => saveOne(r)}
+                        onToggleMode={() => toggleStockMode(r)}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
             )}
-            {rows.map((r) => (
-              <Row
-                key={r.product.id}
-                row={r}
-                draft={drafts[r.product.id] ?? ''}
-                onChange={(v) =>
-                  setDrafts((d) => ({ ...d, [r.product.id]: v }))
-                }
-                onSave={() => saveOne(r)}
-                onToggleMode={() => toggleStockMode(r)}
-              />
-            ))}
-          </tbody>
-        </table>
+          </div>
+        </div>
       </div>
 
       {/* Notes */}
@@ -414,17 +475,21 @@ function Row({
     closing !== null ? closing - row.figures.stock_theorique : null;
   const tNet = row.figures.transferts_in - row.figures.transferts_out;
   const isManual = row.product.stock_mode === 'manuel';
+  const rowBg = isManual && !row.closing ? 'bg-amber-50/40' : '';
 
   return (
-    <tr className={isManual && !row.closing ? 'bg-amber-50/40' : ''}>
-      <Td>
-        <div className="font-medium">{row.product.name}</div>
-        <div className="text-[11px] text-gray-500">
+    <div
+      role="row"
+      className={`grid ${GRID_COLS} border-b border-gray-100 text-sm ${rowBg}`}
+    >
+      <Cell>
+        <div className="font-medium leading-tight">{row.product.name}</div>
+        <div className="text-[11px] text-gray-500 leading-tight">
           {row.product.sku}
           {row.product.category_family ? ` · ${row.product.category_family}` : ''}
         </div>
-      </Td>
-      <Td>
+      </Cell>
+      <Cell>
         <button
           type="button"
           onClick={onToggleMode}
@@ -437,21 +502,25 @@ function Row({
         >
           {isManual ? 'manuel' : 'automatique'}
         </button>
-      </Td>
-      <Td className="text-right tabular-nums">
+      </Cell>
+      <Cell align="right" className="tabular-nums">
         {fmt(row.figures.stock_matin)}
-      </Td>
-      <Td className="text-right tabular-nums text-red-700">
+      </Cell>
+      <Cell align="right" className="tabular-nums text-red-700">
         {fmt(row.figures.ventes_qte)}
-      </Td>
-      <Td className="text-right tabular-nums text-cyan-700">
+      </Cell>
+      <Cell align="right" className="tabular-nums text-cyan-700">
         {tNet > 0 ? '+' : ''}
         {fmt(tNet)}
-      </Td>
-      <Td className="text-right tabular-nums text-gray-500" title="Stock theorique calcule">
+      </Cell>
+      <Cell
+        align="right"
+        className="tabular-nums text-gray-500"
+        title="Stock theorique calcule"
+      >
         {fmt(row.figures.stock_theorique)}
-      </Td>
-      <Td className="text-right">
+      </Cell>
+      <Cell align="right">
         <input
           type="number"
           step="0.001"
@@ -466,8 +535,8 @@ function Row({
           }}
           className="h-8 w-24 rounded border border-gray-300 px-2 text-right text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
         />
-      </Td>
-      <Td>
+      </Cell>
+      <Cell>
         {row.closing ? (
           <div className="flex flex-col gap-0.5">
             <span
@@ -479,11 +548,6 @@ function Row({
             >
               {row.closing.source === 'manual' ? 'saisie' : 'auto'}
             </span>
-            {row.closing.last_auto_at && (
-              <span className="text-[10px] text-gray-400">
-                auto: {new Date(row.closing.last_auto_at).toLocaleString('fr-FR')}
-              </span>
-            )}
             {ecart !== null && (
               <span
                 className={`text-[10px] tabular-nums ${
@@ -502,13 +566,13 @@ function Row({
         ) : (
           <span className="text-[11px] text-gray-400">—</span>
         )}
-      </Td>
-      <Td>
+      </Cell>
+      <Cell>
         <Button size="sm" variant="ghost" onClick={onSave}>
           Save
         </Button>
-      </Td>
-    </tr>
+      </Cell>
+    </div>
   );
 }
 
@@ -533,33 +597,36 @@ function StatCard({
   );
 }
 
-function Th({
+/**
+ * Cellule grille — sert pour header (role='columnheader') et body (defaut).
+ * Header se distingue par font-medium + couleur grise + bordure absente.
+ */
+function Cell({
   children,
   className = '',
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <th className={`px-3 py-2 text-left font-medium text-gray-600 ${className}`}>
-      {children}
-    </th>
-  );
-}
-
-function Td({
-  children,
-  className = '',
+  align = 'left',
   title,
+  role,
 }: {
   children: React.ReactNode;
   className?: string;
+  align?: 'left' | 'right';
   title?: string;
+  role?: 'cell' | 'columnheader';
 }) {
+  const isHeader = role === 'columnheader';
+  const alignCls = align === 'right' ? 'text-right justify-end' : 'text-left';
+  const baseCls = isHeader
+    ? 'font-medium text-gray-600'
+    : 'text-gray-900';
   return (
-    <td className={`px-3 py-2 align-middle ${className}`} title={title}>
+    <div
+      role={role ?? 'cell'}
+      className={`flex flex-col justify-center px-3 py-2 ${alignCls} ${baseCls} ${className}`}
+      title={title}
+    >
       {children}
-    </td>
+    </div>
   );
 }
 

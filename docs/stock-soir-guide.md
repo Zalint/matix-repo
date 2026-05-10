@@ -160,15 +160,25 @@ Un tenant qui n'a que le premier voit la grille mais ne peut pas écrire de note
 
 ## Performance
 
-La requête `getDailyView` fait un `CROSS JOIN products × points_of_sale` filtré sur `deleted_at IS NULL` et `pos.is_active`. Au-delà d'environ 2000 produits × 5 PV (= 10 000 lignes), la page va commencer à ramer.
+La requête `getDailyView` fait un `CROSS JOIN products × points_of_sale` filtré sur `deleted_at IS NULL` et `pos.is_active`. Postgres encaisse 10k+ lignes sans problème grâce à l'index `idx_stock_daily_closings_tenant_pos_date`.
 
-Pistes si on atteint ce volume :
+Le vrai bottleneck à grande échelle, c'est le rendu DOM côté React : afficher 10k `<tr>` fait fumer le navigateur, surtout sur mobile.
 
-- Filtrer par catégorie de produit côté UI
-- Paginer côté backend (offset/limit)
-- Indexer (`tenant_id`, `closing_date`, `point_of_sale_id`) si on fait des stats historiques
+**C'est déjà géré** : la grille de saisie utilise `@tanstack/react-virtual`. Seules les ~30 lignes visibles sont rendues à un instant donné, le scroll reste fluide même à 100k lignes. Le conteneur de scroll fait 640px de hauteur, l'overscan est de 8 lignes pour éviter le flash au scroll rapide.
 
-À surveiller dès le déploiement chez Mata. Le premier client a ~400 produits × 3 PV donc on est large.
+L'implémentation :
+- `useVirtualizer` calcule l'offset/hauteur des lignes visibles
+- Chaque ligne est positionnée en `transform: translateY(...)` dans un parent `position: relative` dont la hauteur totale est `rowVirtualizer.getTotalSize()`
+- Le header est en `position: sticky` pour rester visible pendant le scroll
+- Layout en `display: grid` avec colonnes fixes (au lieu d'une `<table>`) pour que le header et les lignes restent alignés sans calculer les largeurs à la main
+
+Pistes si on rencontre quand même un problème de volume :
+
+- Filtre catégorie de produit côté UI (utile en ergonomie de toute façon, surtout pour les PV abattage qui ne saisissent que la boucherie)
+- Filtre "non-saisis seulement" pour cacher les lignes OK et concentrer l'attention
+- Pagination backend : à éviter pour la saisie (casse le workflow "tout voir + save all"), OK pour la consultation
+
+Le premier client Mata est à ~400 produits × 3 PV = 1200 lignes. On est large.
 
 ## Schéma de données
 
