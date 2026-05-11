@@ -1,0 +1,146 @@
+[
+  {
+    "pos": "Mbao",
+    "product": "Boeuf",
+    "quantity": 35.8,
+    "unit_price": 4095.08
+  },
+  {
+    "pos": "Mbao",
+    "product": "Poulet",
+    "quantity": 102.0,
+    "unit_price": 3500.0
+  },
+  {
+    "pos": "Mbao",
+    "product": "Foie",
+    "quantity": 1.0,
+    "unit_price": 4000.0
+  },
+  {
+    "pos": "Mbao",
+    "product": "Yell",
+    "quantity": 24.0,
+    "unit_price": 3000.0
+  },
+  {
+    "pos": "Mbao",
+    "product": "Déchet 400",
+    "quantity": 3.5,
+    "unit_price": 400.0
+  },
+  {
+    "pos": "O.Foire",
+    "product": "Poulet",
+    "quantity": 156.0,
+    "unit_price": 4000.0
+  },
+  {
+    "pos": "O.Foire",
+    "product": "Yell",
+    "quantity": 2.0,
+    "unit_price": 3000.0
+  },
+  {
+    "pos": "O.Foire",
+    "product": "Déchet 400",
+    "quantity": 6.1,
+    "unit_price": 400.0
+  },
+  {
+    "pos": "O.Foire",
+    "product": "Patte de mouton",
+    "quantity": 18.0,
+    "unit_price": 300.0
+  },
+  {
+    "pos": "Keur Massar",
+    "product": "Boeuf",
+    "quantity": 35.2,
+    "unit_price": 4051.61
+  },
+  {
+    "pos": "Keur Massar",
+    "product": "Poulet",
+    "quantity": 116.0,
+    "unit_price": 3000.0
+  },
+  {
+    "pos": "Keur Massar",
+    "product": "Foie",
+    "quantity": 2.5,
+    "unit_price": 4000.0
+  },
+  {
+    "pos": "Keur Massar",
+    "product": "Yell",
+    "quantity": 6.0,
+    "unit_price": 3000.0
+  },
+  {
+    "pos": "Keur Massar",
+    "product": "Agneau",
+    "quantity": 3.2,
+    "unit_price": 5300.0
+  },
+  {
+    "pos": "Keur Massar",
+    "product": "Déchet 400",
+    "quantity": 3.8,
+    "unit_price": 400.0
+  },
+  {
+    "pos": "Keur Massar",
+    "product": "Dorade",
+    "quantity": 0.945,
+    "unit_price": 3500.0
+  },
+  {
+    "pos": "Sacre Coeur",
+    "product": "Boeuf",
+    "quantity": 22.15,
+    "unit_price": 3919.53
+  },
+  {
+    "pos": "Sacre Coeur",
+    "product": "Poulet",
+    "quantity": 186.0,
+    "unit_price": 3500.0
+  },
+  {
+    "pos": "Sacre Coeur",
+    "product": "Yell",
+    "quantity": 3.0,
+    "unit_price": 3000.0
+  },
+  {
+    "pos": "Sacre Coeur",
+    "product": "Agneau",
+    "quantity": 1.5,
+    "unit_price": 4485.14
+  },
+  {
+    "pos": "Sacre Coeur",
+    "product": "Déchet 400",
+    "quantity": 4.1,
+    "unit_price": 400.0
+  },
+  {
+    "pos": "Sacre Coeur",
+    "product": "Patte de mouton",
+    "quantity": 38.0,
+    "unit_price": 300.0
+  },
+  {
+    "pos": "Sacre Coeur",
+    "product": "Laxass",
+    "quantity": 29.0,
+    "unit_price": 200.0
+  },
+  {
+    "pos": "Chambre froide",
+    "product": "Boeuf",
+    "quantity": 482.8,
+    "unit_price": 4100.0
+  }
+]

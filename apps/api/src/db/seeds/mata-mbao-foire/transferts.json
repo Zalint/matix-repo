@@ -1,0 +1,128 @@
+[
+  {
+    "pos": "Mbao",
+    "product": "Boeuf",
+    "impact": "+",
+    "quantity": 70.5,
+    "unit_price": 4095.08
+  },
+  {
+    "pos": "Mbao",
+    "product": "Foie",
+    "impact": "+",
+    "quantity": 3.5,
+    "unit_price": 4000.0
+  },
+  {
+    "pos": "Sacre Coeur",
+    "product": "Boeuf",
+    "impact": "+",
+    "quantity": 135.8,
+    "unit_price": 3919.53
+  },
+  {
+    "pos": "Sacre Coeur",
+    "product": "Foie",
+    "impact": "+",
+    "quantity": 12.85,
+    "unit_price": 4000.0
+  },
+  {
+    "pos": "O.Foire",
+    "product": "Boeuf",
+    "impact": "+",
+    "quantity": 130.0,
+    "unit_price": 4021.46
+  },
+  {
+    "pos": "O.Foire",
+    "product": "Foie",
+    "impact": "+",
+    "quantity": 2.6,
+    "unit_price": 4000.0
+  },
+  {
+    "pos": "Keur Massar",
+    "product": "Boeuf",
+    "impact": "+",
+    "quantity": 67.4,
+    "unit_price": 4051.61
+  },
+  {
+    "pos": "Keur Massar",
+    "product": "Foie",
+    "impact": "+",
+    "quantity": 4.4,
+    "unit_price": 4000.0
+  },
+  {
+    "pos": "Sacre Coeur",
+    "product": "Agneau",
+    "impact": "+",
+    "quantity": 22.85,
+    "unit_price": 4485.14
+  },
+  {
+    "pos": "O.Foire",
+    "product": "Yell",
+    "impact": "+",
+    "quantity": 4.0,
+    "unit_price": 3000.0
+  },
+  {
+    "pos": "O.Foire",
+    "product": "Poulet",
+    "impact": "+",
+    "quantity": 280.0,
+    "unit_price": 4000.0
+  },
+  {
+    "pos": "O.Foire",
+    "product": "Poulet",
+    "impact": "-",
+    "quantity": 100.0,
+    "unit_price": 4000.0
+  },
+  {
+    "pos": "Sacre Coeur",
+    "product": "Poulet",
+    "impact": "+",
+    "quantity": 100.0,
+    "unit_price": 3500.0
+  },
+  {
+    "pos": "Keur Massar",
+    "product": "Poulet",
+    "impact": "+",
+    "quantity": 100.0,
+    "unit_price": 3000.0
+  },
+  {
+    "pos": "Abattage",
+    "product": "Boeuf",
+    "impact": "+",
+    "quantity": 835.0,
+    "unit_price": 3700.0
+  },
+  {
+    "pos": "Abattage",
+    "product": "Boeuf",
+    "impact": "-",
+    "quantity": 426.0,
+    "unit_price": 3700.0
+  },
+  {
+    "pos": "Chambre froide",
+    "product": "Boeuf",
+    "impact": "+",
+    "quantity": 426.0,
+    "unit_price": 4100.0
+  },
+  {
+    "pos": "Abattage",
+    "product": "Boeuf",
+    "impact": "-",
+    "quantity": 403.7,
+    "unit_price": 3700.0
+  }
+]
