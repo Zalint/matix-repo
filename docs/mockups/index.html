@@ -1,0 +1,1176 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mockup — Découpe & Achat (Matix)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50:  '#fdf6ed', 100: '#fae9cc', 200: '#f4d090', 300: '#edb557',
+              400: '#e69f30', 500: '#cc7f17', 600: '#a55f12', 700: '#7d4510',
+              800: '#5a3210', 900: '#3a200b',
+            },
+          },
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+        },
+      },
+    };
+  </script>
+  <style>
+    body { font-family: Inter, system-ui, sans-serif; }
+    .scene { scroll-margin-top: 24px; }
+    .badge-sticker {
+      position: absolute; top: -10px; left: 16px;
+      background: #cc7f17; color: white; font-size: 11px;
+      font-weight: 600; padding: 2px 10px; border-radius: 4px;
+      letter-spacing: 0.04em; text-transform: uppercase;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 text-gray-900">
+
+<!-- =============================================================== -->
+<!-- NAV de mockup -->
+<!-- =============================================================== -->
+<nav class="sticky top-0 z-20 border-b border-gray-200 bg-white/95 backdrop-blur">
+  <div class="mx-auto max-w-7xl flex items-center justify-between px-4 py-3">
+    <div class="flex items-center gap-3">
+      <div class="h-8 w-8 rounded-md bg-brand-600 text-white grid place-items-center font-bold">M</div>
+      <span class="text-lg font-semibold">Matix · Mockup découpe</span>
+    </div>
+    <div class="flex gap-2 text-xs flex-wrap">
+      <a href="#scene-0" class="rounded bg-gray-100 hover:bg-gray-200 px-3 py-1.5 font-medium">0. Flow du jour</a>
+      <a href="#scene-1" class="rounded bg-gray-100 hover:bg-gray-200 px-3 py-1.5 font-medium">1. Liste découpes</a>
+      <a href="#scene-2" class="rounded bg-gray-100 hover:bg-gray-200 px-3 py-1.5 font-medium">2. Nouvelle découpe</a>
+      <a href="#scene-3" class="rounded bg-gray-100 hover:bg-gray-200 px-3 py-1.5 font-medium">3. POS (gros / détails)</a>
+      <a href="#scene-4" class="rounded bg-gray-100 hover:bg-gray-200 px-3 py-1.5 font-medium">4. Stat rendement</a>
+      <a href="#scene-5" class="rounded bg-red-100 hover:bg-red-200 text-red-900 px-3 py-1.5 font-medium">5. Décomposition de la perte</a>
+    </div>
+  </div>
+</nav>
+
+<main class="mx-auto max-w-7xl space-y-12 px-4 py-8">
+
+<!-- =============================================================== -->
+<!-- SCENE 0 : timeline du flow journalier -->
+<!-- =============================================================== -->
+<section id="scene-0" class="scene">
+  <header class="mb-3">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-brand-700">Scene 0</div>
+    <h2 class="text-xl font-semibold">Flow d'une journée — où se branche quoi</h2>
+    <p class="text-sm text-gray-500">Quatre moments. Trois écrans existent déjà ou sont en cours, un seul est nouveau (la découpe).</p>
+  </header>
+
+  <div class="relative rounded-lg border border-gray-200 bg-white shadow-sm p-6">
+    <span class="badge-sticker">overview</span>
+
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 relative">
+      <!-- Etape 1 -->
+      <div class="rounded-md border border-gray-200 bg-gray-50 p-4">
+        <div class="flex items-center gap-2">
+          <div class="h-7 w-7 rounded-full bg-blue-100 text-blue-700 grid place-items-center text-xs font-bold">1</div>
+          <div class="text-xs font-semibold uppercase tracking-wider text-gray-500">Matin</div>
+        </div>
+        <h3 class="mt-2 font-semibold">Réception fournisseur</h3>
+        <p class="mt-1 text-xs text-gray-600">L'acheteur reçoit la carcasse, saisit <code class="rounded bg-white px-1 border border-gray-200">+100 kg</code> en <code class="rounded bg-white px-1 border border-gray-200">transfer_in</code> sur le PV "Abattage".</p>
+        <div class="mt-3 text-[11px] text-gray-500">
+          Écran : <b>existant</b> · /operations/inventory · <i>aucun changement</i>
+        </div>
+      </div>
+
+      <!-- Etape 2 -->
+      <div class="rounded-md border-2 border-brand-300 bg-brand-50/60 p-4">
+        <div class="flex items-center gap-2">
+          <div class="h-7 w-7 rounded-full bg-brand-200 text-brand-800 grid place-items-center text-xs font-bold">2</div>
+          <div class="text-xs font-semibold uppercase tracking-wider text-brand-800">Matin / journée</div>
+        </div>
+        <h3 class="mt-2 font-semibold text-brand-900">Découpe</h3>
+        <p class="mt-1 text-xs text-brand-900">Le boucher découpe la carcasse. Une seule action : 1 source → N sorties + chute calculée automatiquement.</p>
+        <div class="mt-3 text-[11px] text-brand-800">
+          Écran : <b>nouveau</b> · /operations/inventory/cuttings · <i>scènes 1 + 2 ci-dessous</i>
+        </div>
+      </div>
+
+      <!-- Etape 3 -->
+      <div class="rounded-md border-2 border-brand-300 bg-brand-50/60 p-4">
+        <div class="flex items-center gap-2">
+          <div class="h-7 w-7 rounded-full bg-brand-200 text-brand-800 grid place-items-center text-xs font-bold">3</div>
+          <div class="text-xs font-semibold uppercase tracking-wider text-brand-800">Journée</div>
+        </div>
+        <h3 class="mt-2 font-semibold text-brand-900">Ventes POS</h3>
+        <p class="mt-1 text-xs text-brand-900">Au moment de vendre "Boeuf", le caissier choisit le tarif <b>détails</b> ou <b>gros</b>. Le SKU Boeuf est décrémenté pareil dans les deux cas — seul le prix change.</p>
+        <div class="mt-3 text-[11px] text-brand-800">
+          Écran : <b>évolution POS</b> · /sales (existant) · <i>scène 3 ci-dessous</i>
+        </div>
+      </div>
+
+      <!-- Etape 4 -->
+      <div class="rounded-md border border-gray-200 bg-gray-50 p-4">
+        <div class="flex items-center gap-2">
+          <div class="h-7 w-7 rounded-full bg-blue-100 text-blue-700 grid place-items-center text-xs font-bold">4</div>
+          <div class="text-xs font-semibold uppercase tracking-wider text-gray-500">Soir</div>
+        </div>
+        <h3 class="mt-2 font-semibold">Comptage / stock soir</h3>
+        <p class="mt-1 text-xs text-gray-600">Le boucher pèse ce qui reste de chaque variante. Saisie manuelle dans la grille stock soir, mode déjà en place.</p>
+        <div class="mt-3 text-[11px] text-gray-500">
+          Écran : <b>existant</b> · /operations/inventory/daily · <i>aucun changement</i>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-4 rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900">
+      <b>Invariant :</b> la chaîne des SKU est cohérente.
+      L'achat ajoute du stock à <code>Carcasse boeuf</code>.
+      La découpe transfère ce stock vers les SKU finis : <code>Boeuf</code>, <code>Filet</code>, <code>Faux-filet</code>, <code>Jarret</code>, etc.
+      La vente décrémente l'un de ces SKU finis (et applique le tarif détails ou gros si configuré).
+      Le stock soir compte ces mêmes SKU.
+      Pas d'ambiguïté, pas de mapping JSON statique.
+    </div>
+  </div>
+</section>
+
+<!-- =============================================================== -->
+<!-- SCENE 1 : page liste des découpes du jour -->
+<!-- =============================================================== -->
+<section id="scene-1" class="scene">
+  <header class="mb-3">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-brand-700">Scene 1</div>
+    <h2 class="text-xl font-semibold">Page liste — <code class="rounded bg-gray-200 px-1.5 py-0.5 text-sm">/operations/inventory/cuttings</code></h2>
+    <p class="text-sm text-gray-500">Vue quotidienne des découpes pour un PV. Bouton flashy pour créer, KPI sur le rendement, tableau des découpes du jour.</p>
+  </header>
+
+  <div class="relative rounded-lg border border-gray-200 bg-white shadow-sm">
+    <span class="badge-sticker">page app</span>
+
+    <div class="p-6">
+      <!-- Page header -->
+      <div class="flex items-start justify-between">
+        <div>
+          <h3 class="text-2xl font-semibold">Découpes</h3>
+          <p class="text-sm text-gray-500">Carcasses et matières premières découpées vers les produits de vente. Une découpe = 1 source → N sorties + chute.</p>
+        </div>
+        <button class="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-700">
+          + Nouvelle découpe
+        </button>
+      </div>
+
+      <!-- Filtres -->
+      <div class="mt-4 flex flex-wrap items-end gap-3 rounded-md border border-gray-200 bg-gray-50 p-3">
+        <div>
+          <label class="block text-xs font-medium text-gray-600">Date</label>
+          <input type="date" value="2026-05-11" class="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600">Point de vente</label>
+          <select class="h-9 rounded-md border border-gray-300 bg-white px-3 text-sm">
+            <option>Abattage</option>
+            <option>Mbao</option>
+            <option>Boutique principale</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600">Produit source</label>
+          <select class="h-9 rounded-md border border-gray-300 bg-white px-3 text-sm">
+            <option>Tous</option>
+            <option>Carcasse boeuf</option>
+            <option>Demi-carcasse</option>
+            <option>Viande boeuf</option>
+          </select>
+        </div>
+        <div class="ml-auto">
+          <button class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium hover:bg-gray-100">Export CSV</button>
+        </div>
+      </div>
+
+      <!-- KPIs -->
+      <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div class="rounded-md border border-gray-200 bg-white p-3">
+          <div class="text-xs text-gray-500">Découpes du jour</div>
+          <div class="mt-1 text-2xl font-semibold">3</div>
+        </div>
+        <div class="rounded-md border border-gray-200 bg-white p-3">
+          <div class="text-xs text-gray-500">Source totale</div>
+          <div class="mt-1 text-2xl font-semibold tabular-nums">312 <span class="text-base font-normal text-gray-500">kg</span></div>
+        </div>
+        <div class="rounded-md border border-gray-200 bg-white p-3">
+          <div class="text-xs text-gray-500">Sorties (produits finis)</div>
+          <div class="mt-1 text-2xl font-semibold tabular-nums">252 <span class="text-base font-normal text-gray-500">kg</span></div>
+        </div>
+        <div class="rounded-md border border-amber-300 bg-amber-50 p-3">
+          <div class="text-xs text-amber-900">Chute totale</div>
+          <div class="mt-1 text-2xl font-semibold tabular-nums text-amber-900">60 <span class="text-base font-normal">kg · 19,2 %</span></div>
+        </div>
+      </div>
+
+      <!-- Tableau des découpes -->
+      <div class="mt-4 overflow-x-auto rounded-md border border-gray-200">
+        <table class="min-w-full divide-y divide-gray-200 text-sm">
+          <thead class="bg-gray-50">
+            <tr class="text-left">
+              <th class="px-3 py-2 font-medium text-gray-600">Heure</th>
+              <th class="px-3 py-2 font-medium text-gray-600">Source</th>
+              <th class="px-3 py-2 text-right font-medium text-gray-600">Qté source</th>
+              <th class="px-3 py-2 font-medium text-gray-600">Sorties</th>
+              <th class="px-3 py-2 text-right font-medium text-gray-600">Total sorties</th>
+              <th class="px-3 py-2 text-right font-medium text-gray-600">Chute</th>
+              <th class="px-3 py-2 font-medium text-gray-600">Rendement</th>
+              <th class="px-3 py-2 font-medium text-gray-600">Par</th>
+              <th class="px-3 py-2"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <tr>
+              <td class="px-3 py-2 tabular-nums">07:42</td>
+              <td class="px-3 py-2">
+                <div class="font-medium">Carcasse boeuf</div>
+                <div class="text-[11px] text-gray-500">CARC-BOEUF · #1428</div>
+              </td>
+              <td class="px-3 py-2 text-right tabular-nums">120,000 kg</td>
+              <td class="px-3 py-2">
+                <div class="text-xs space-y-0.5">
+                  <div>70,000 kg · <b>Boeuf</b></div>
+                  <div>2,500 kg · <b>Filet</b></div>
+                  <div>2,000 kg · <b>Faux-filet</b></div>
+                  <div>6,500 kg · <b>Jarret</b></div>
+                </div>
+              </td>
+              <td class="px-3 py-2 text-right tabular-nums">81,000 kg</td>
+              <td class="px-3 py-2 text-right">
+                <div class="tabular-nums text-amber-900">39,000 kg</div>
+                <div class="text-[11px] text-amber-800">32,5 %</div>
+              </td>
+              <td class="px-3 py-2">
+                <span class="inline-flex rounded-full bg-red-100 text-red-800 px-2 py-0.5 text-[11px] font-medium">faible</span>
+                <div class="text-[11px] text-gray-500 mt-0.5">attendu 80–85 %</div>
+              </td>
+              <td class="px-3 py-2 text-xs text-gray-600">M. Diop</td>
+              <td class="px-3 py-2 text-right">
+                <button class="text-brand-700 hover:underline text-xs">Détail</button>
+              </td>
+            </tr>
+            <tr class="bg-green-50/30">
+              <td class="px-3 py-2 tabular-nums">10:15</td>
+              <td class="px-3 py-2">
+                <div class="font-medium">Demi-carcasse boeuf</div>
+                <div class="text-[11px] text-gray-500">CARC-BOEUF-1/2 · #1429</div>
+              </td>
+              <td class="px-3 py-2 text-right tabular-nums">85,000 kg</td>
+              <td class="px-3 py-2">
+                <div class="text-xs space-y-0.5">
+                  <div>55,000 kg · <b>Boeuf</b></div>
+                  <div>15,000 kg · <b>Jarret</b></div>
+                </div>
+              </td>
+              <td class="px-3 py-2 text-right tabular-nums">70,000 kg</td>
+              <td class="px-3 py-2 text-right">
+                <div class="tabular-nums text-gray-700">15,000 kg</div>
+                <div class="text-[11px] text-gray-500">17,6 %</div>
+              </td>
+              <td class="px-3 py-2">
+                <span class="inline-flex rounded-full bg-green-100 text-green-800 px-2 py-0.5 text-[11px] font-medium">normal</span>
+                <div class="text-[11px] text-gray-500 mt-0.5">82,4 %</div>
+              </td>
+              <td class="px-3 py-2 text-xs text-gray-600">M. Ndiaye</td>
+              <td class="px-3 py-2 text-right">
+                <button class="text-brand-700 hover:underline text-xs">Détail</button>
+              </td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2 tabular-nums">14:30</td>
+              <td class="px-3 py-2">
+                <div class="font-medium">Viande boeuf</div>
+                <div class="text-[11px] text-gray-500">BOEUF-DETAIL · #1430 <span class="ml-1 rounded bg-purple-100 text-purple-800 px-1 text-[10px]">transformation</span></div>
+              </td>
+              <td class="px-3 py-2 text-right tabular-nums">7,000 kg</td>
+              <td class="px-3 py-2">
+                <div class="text-xs">6,000 kg · <b>Viande hachée</b></div>
+              </td>
+              <td class="px-3 py-2 text-right tabular-nums">6,000 kg</td>
+              <td class="px-3 py-2 text-right">
+                <div class="tabular-nums text-gray-700">1,000 kg</div>
+                <div class="text-[11px] text-gray-500">14,3 %</div>
+              </td>
+              <td class="px-3 py-2">
+                <span class="inline-flex rounded-full bg-green-100 text-green-800 px-2 py-0.5 text-[11px] font-medium">normal</span>
+                <div class="text-[11px] text-gray-500 mt-0.5">85,7 %</div>
+              </td>
+              <td class="px-3 py-2 text-xs text-gray-600">A. Sow</td>
+              <td class="px-3 py-2 text-right">
+                <button class="text-brand-700 hover:underline text-xs">Détail</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="mt-3 text-xs text-gray-500">Astuce : cliquer sur une ligne ouvre le détail (mouvements de stock générés, coûts répartis). Les découpes du jour deviennent automatiquement des entrées de stock pour les produits cibles.</p>
+    </div>
+  </div>
+</section>
+
+<!-- =============================================================== -->
+<!-- SCENE 2 : drawer "Nouvelle découpe" -->
+<!-- =============================================================== -->
+<section id="scene-2" class="scene">
+  <header class="mb-3">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-brand-700">Scene 2</div>
+    <h2 class="text-xl font-semibold">Drawer — Nouvelle découpe</h2>
+    <p class="text-sm text-gray-500">Side drawer (ne quitte pas la page). Source en haut, sorties en bas, chute calculée en live. Save = transactionnel.</p>
+  </header>
+
+  <div class="relative rounded-lg border border-gray-200 bg-gray-100 shadow-sm overflow-hidden">
+    <span class="badge-sticker">drawer modal</span>
+
+    <!-- Faux fond grisé (la page derrière le drawer) -->
+    <div class="h-[40px] bg-gray-200/60"></div>
+
+    <div class="flex">
+      <!-- "page derrière" -->
+      <div class="flex-1 h-[680px] bg-gray-200/40 p-6">
+        <div class="text-sm text-gray-400">…page liste en arrière-plan…</div>
+      </div>
+
+      <!-- DRAWER -->
+      <div class="w-[640px] bg-white border-l border-gray-200 shadow-xl flex flex-col">
+        <!-- Header drawer -->
+        <div class="flex items-center justify-between border-b border-gray-200 px-5 py-3">
+          <div>
+            <h3 class="text-lg font-semibold">Nouvelle découpe</h3>
+            <p class="text-xs text-gray-500">PV : Abattage · 11 mai 2026</p>
+          </div>
+          <button class="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
+        </div>
+
+        <!-- Body scrollable -->
+        <div class="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+
+          <!-- Source -->
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Source (matière première)</div>
+            <div class="grid grid-cols-[1fr_140px_110px] gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-600">Produit</label>
+                <select class="mt-1 h-9 w-full rounded-md border border-gray-300 bg-white px-2 text-sm">
+                  <option>Carcasse boeuf (CARC-BOEUF)</option>
+                  <option>Demi-carcasse (CARC-BOEUF-1/2)</option>
+                  <option>Viande boeuf détails (BOEUF-DETAIL)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600">Quantité (kg)</label>
+                <input id="source-qty" type="number" step="0.001" value="120.000" class="mt-1 h-9 w-full rounded-md border border-gray-300 bg-white px-2 text-right text-sm tabular-nums" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600">Stock dispo</label>
+                <div class="mt-1 h-9 flex items-center justify-end pr-1 text-sm tabular-nums text-gray-500">340,000 kg</div>
+              </div>
+            </div>
+            <div class="mt-1 text-[11px] text-gray-500">La source sera décrémentée à l'enregistrement (mouvement <code>cutting_out</code>).</div>
+          </div>
+
+          <!-- Recette suggérée -->
+          <div class="rounded-md border border-brand-200 bg-brand-50/60 p-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-xs font-medium text-brand-900">Recette standard détectée</div>
+                <div class="text-[11px] text-brand-800 mt-0.5">
+                  Carcasse boeuf → ~58 % Boeuf · 2 % Filet · 2 % Faux-filet · 5 % Jarret · ~33 % chute attendue (os, gras, perte). Détails/gros se décide à la vente, pas ici.
+                </div>
+              </div>
+              <button class="rounded-md bg-white border border-brand-300 px-3 py-1 text-xs font-medium text-brand-800 hover:bg-brand-100">Pré-remplir</button>
+            </div>
+          </div>
+
+          <!-- Sorties -->
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-xs font-semibold uppercase tracking-wider text-gray-500">Sorties (produits finis)</div>
+              <button id="add-row" class="text-xs font-medium text-brand-700 hover:underline">+ ajouter une sortie</button>
+            </div>
+
+            <div class="rounded-md border border-gray-200 divide-y divide-gray-100">
+
+              <div class="grid grid-cols-[1fr_120px_120px_40px] items-center gap-3 px-3 py-2">
+                <select class="h-8 rounded border border-gray-300 bg-white px-2 text-sm">
+                  <option selected>Boeuf</option>
+                  <option>Filet</option>
+                  <option>Faux-filet</option>
+                  <option>Jarret</option>
+                  <option>Viande hachée</option>
+                </select>
+                <input data-qty type="number" step="0.001" value="70.000" class="h-8 rounded border border-gray-300 px-2 text-right text-sm tabular-nums" />
+                <div class="text-right text-xs text-gray-500 tabular-nums">58,3 %</div>
+                <button class="text-gray-400 hover:text-red-600 text-lg leading-none">×</button>
+              </div>
+
+              <div class="grid grid-cols-[1fr_120px_120px_40px] items-center gap-3 px-3 py-2">
+                <select class="h-8 rounded border border-gray-300 bg-white px-2 text-sm">
+                  <option selected>Filet</option>
+                  <option>Boeuf</option>
+                  <option>Faux-filet</option>
+                </select>
+                <input data-qty type="number" step="0.001" value="2.500" class="h-8 rounded border border-gray-300 px-2 text-right text-sm tabular-nums" />
+                <div class="text-right text-xs text-gray-500 tabular-nums">2,1 %</div>
+                <button class="text-gray-400 hover:text-red-600 text-lg leading-none">×</button>
+              </div>
+
+              <div class="grid grid-cols-[1fr_120px_120px_40px] items-center gap-3 px-3 py-2">
+                <select class="h-8 rounded border border-gray-300 bg-white px-2 text-sm">
+                  <option selected>Faux-filet</option>
+                  <option>Filet</option>
+                </select>
+                <input data-qty type="number" step="0.001" value="2.000" class="h-8 rounded border border-gray-300 px-2 text-right text-sm tabular-nums" />
+                <div class="text-right text-xs text-gray-500 tabular-nums">1,7 %</div>
+                <button class="text-gray-400 hover:text-red-600 text-lg leading-none">×</button>
+              </div>
+
+              <div class="grid grid-cols-[1fr_120px_120px_40px] items-center gap-3 px-3 py-2">
+                <select class="h-8 rounded border border-gray-300 bg-white px-2 text-sm">
+                  <option selected>Jarret</option>
+                  <option>Boeuf</option>
+                </select>
+                <input data-qty type="number" step="0.001" value="6.500" class="h-8 rounded border border-gray-300 px-2 text-right text-sm tabular-nums" />
+                <div class="text-right text-xs text-gray-500 tabular-nums">5,4 %</div>
+                <button class="text-gray-400 hover:text-red-600 text-lg leading-none">×</button>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Bilan live -->
+          <div class="rounded-md border border-gray-200 bg-gray-50 p-3 space-y-1.5 text-sm tabular-nums">
+            <div class="flex justify-between"><span class="text-gray-600">Source</span><span><span id="src">120,000</span> kg</span></div>
+            <div class="flex justify-between"><span class="text-gray-600">Total sorties</span><span><span id="out">81,000</span> kg</span></div>
+            <div class="flex justify-between border-t border-gray-200 pt-1.5">
+              <span class="font-medium">Chute</span>
+              <span class="font-semibold text-amber-900"><span id="waste">39,000</span> kg · <span id="waste-pct">32,5</span> %</span>
+            </div>
+            <div class="flex items-center gap-2 text-xs text-amber-800 mt-1">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9z"/></svg>
+              Chute supérieure à 20 % (attendu pour ce produit). Vérifier ou commenter.
+            </div>
+          </div>
+
+          <!-- Note -->
+          <div>
+            <label class="block text-xs font-medium text-gray-600">Note (facultatif)</label>
+            <textarea rows="2" placeholder="Ex: carcasse pleine d'os, pas de filet utilisable" class="mt-1 w-full rounded-md border border-gray-300 bg-white p-2 text-sm"></textarea>
+          </div>
+
+        </div>
+
+        <!-- Footer -->
+        <div class="flex items-center justify-between border-t border-gray-200 px-5 py-3 bg-gray-50">
+          <div class="text-xs text-gray-500">
+            Crée 1 mouvement <code class="rounded bg-gray-200 px-1">cutting_out</code> + 4 <code class="rounded bg-gray-200 px-1">cutting_in</code> (transaction).
+          </div>
+          <div class="flex gap-2">
+            <button class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-100">Annuler</button>
+            <button class="rounded-md bg-brand-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-brand-700">Enregistrer la découpe</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // calcul live de la chute
+    function recompute() {
+      const src = parseFloat(document.getElementById('source-qty').value) || 0;
+      const out = Array.from(document.querySelectorAll('[data-qty]'))
+        .reduce((a,el) => a + (parseFloat(el.value) || 0), 0);
+      const waste = src - out;
+      const pct = src > 0 ? (waste / src) * 100 : 0;
+      document.getElementById('src').textContent = src.toFixed(3).replace('.', ',');
+      document.getElementById('out').textContent = out.toFixed(3).replace('.', ',');
+      document.getElementById('waste').textContent = waste.toFixed(3).replace('.', ',');
+      document.getElementById('waste-pct').textContent = pct.toFixed(1).replace('.', ',');
+      // recalcule les % par ligne
+      document.querySelectorAll('[data-qty]').forEach(el => {
+        const cell = el.parentElement.children[2];
+        const q = parseFloat(el.value) || 0;
+        cell.textContent = (src > 0 ? (q/src*100).toFixed(1).replace('.', ',') : '0,0') + ' %';
+      });
+    }
+    document.getElementById('source-qty').addEventListener('input', recompute);
+    document.querySelectorAll('[data-qty]').forEach(el => el.addEventListener('input', recompute));
+  </script>
+</section>
+
+<!-- =============================================================== -->
+<!-- SCENE 3 : POS — choix variante détails / gros à la vente -->
+<!-- =============================================================== -->
+<section id="scene-3" class="scene">
+  <header class="mb-3">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-brand-700">Scene 3</div>
+    <h2 class="text-xl font-semibold">POS — choix du tarif (détails / gros) à la vente</h2>
+    <p class="text-sm text-gray-500">Quand on vend "Boeuf", le caissier choisit le <b>tarif</b> appliqué : détails ou gros. <b>Un seul SKU Boeuf en stock</b> — le toggle change uniquement le prix unitaire, pas le produit décrémenté. Disponible que pour les produits configurés avec deux tarifs.</p>
+  </header>
+
+  <div class="relative rounded-lg border border-gray-200 bg-white shadow-sm">
+    <span class="badge-sticker">page app · /sales/new</span>
+
+    <div class="p-6">
+      <!-- Header POS -->
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="text-2xl font-semibold">Nouvelle vente</h3>
+          <div class="text-xs text-gray-500">PV : Boutique principale · Caissier : F. Faye · 11 mai 2026 — 11h32</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-100">Client</button>
+          <button class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-gray-100">Recherche produit</button>
+        </div>
+      </div>
+
+      <!-- Layout : grille produits gauche / panier droite -->
+      <div class="grid grid-cols-[1fr_400px] gap-4">
+
+        <!-- ====== GAUCHE : grille produits ====== -->
+        <div>
+          <!-- Filtres catégorie -->
+          <div class="flex flex-wrap gap-2 mb-3">
+            <button class="rounded-full bg-brand-600 text-white px-3 py-1 text-xs font-medium">Boucherie</button>
+            <button class="rounded-full bg-gray-100 hover:bg-gray-200 px-3 py-1 text-xs font-medium text-gray-700">Volaille</button>
+            <button class="rounded-full bg-gray-100 hover:bg-gray-200 px-3 py-1 text-xs font-medium text-gray-700">Épicerie</button>
+            <button class="rounded-full bg-gray-100 hover:bg-gray-200 px-3 py-1 text-xs font-medium text-gray-700">Tous</button>
+          </div>
+
+          <!-- Grille cartes -->
+          <div class="grid grid-cols-3 gap-3">
+            <!-- Boeuf : avec badge double tarif -->
+            <button class="relative rounded-lg border-2 border-brand-300 bg-white p-3 text-left hover:border-brand-500 hover:shadow-sm">
+              <div class="absolute top-1 right-1 rounded bg-brand-100 text-brand-800 text-[10px] font-medium px-1.5 py-0.5">2 tarifs</div>
+              <div class="h-12 w-12 rounded bg-red-100 grid place-items-center text-2xl">🥩</div>
+              <div class="mt-2 font-medium text-sm">Boeuf</div>
+              <div class="text-xs text-gray-500">détails 3 500 / gros 4 200 XOF/kg</div>
+            </button>
+
+            <button class="rounded-lg border border-gray-200 bg-white p-3 text-left hover:border-brand-400 hover:shadow-sm">
+              <div class="h-12 w-12 rounded bg-red-100 grid place-items-center text-2xl">🥩</div>
+              <div class="mt-2 font-medium text-sm">Filet</div>
+              <div class="text-xs text-gray-500">7 500 XOF/kg</div>
+            </button>
+
+            <button class="rounded-lg border border-gray-200 bg-white p-3 text-left hover:border-brand-400 hover:shadow-sm">
+              <div class="h-12 w-12 rounded bg-red-100 grid place-items-center text-2xl">🥩</div>
+              <div class="mt-2 font-medium text-sm">Faux-filet</div>
+              <div class="text-xs text-gray-500">6 800 XOF/kg</div>
+            </button>
+
+            <button class="rounded-lg border border-gray-200 bg-white p-3 text-left hover:border-brand-400 hover:shadow-sm">
+              <div class="h-12 w-12 rounded bg-red-100 grid place-items-center text-2xl">🥩</div>
+              <div class="mt-2 font-medium text-sm">Jarret</div>
+              <div class="text-xs text-gray-500">2 800 XOF/kg</div>
+            </button>
+
+            <button class="rounded-lg border border-gray-200 bg-white p-3 text-left hover:border-brand-400 hover:shadow-sm">
+              <div class="h-12 w-12 rounded bg-red-100 grid place-items-center text-2xl">🥩</div>
+              <div class="mt-2 font-medium text-sm">Viande hachée</div>
+              <div class="text-xs text-gray-500">4 000 XOF/kg</div>
+            </button>
+
+            <!-- Veau : aussi 2 tarifs -->
+            <button class="relative rounded-lg border-2 border-brand-300 bg-white p-3 text-left hover:border-brand-500 hover:shadow-sm">
+              <div class="absolute top-1 right-1 rounded bg-brand-100 text-brand-800 text-[10px] font-medium px-1.5 py-0.5">2 tarifs</div>
+              <div class="h-12 w-12 rounded bg-pink-100 grid place-items-center text-2xl">🥩</div>
+              <div class="mt-2 font-medium text-sm">Veau</div>
+              <div class="text-xs text-gray-500">détails 4 500 / gros 5 200 XOF/kg</div>
+            </button>
+
+            <button class="rounded-lg border border-gray-200 bg-white p-3 text-left hover:border-brand-400 hover:shadow-sm">
+              <div class="h-12 w-12 rounded bg-pink-100 grid place-items-center text-2xl">🥩</div>
+              <div class="mt-2 font-medium text-sm">Foie</div>
+              <div class="text-xs text-gray-500">3 200 XOF/kg</div>
+            </button>
+
+            <!-- Mouton : aussi 2 tarifs -->
+            <button class="relative rounded-lg border-2 border-brand-300 bg-white p-3 text-left hover:border-brand-500 hover:shadow-sm">
+              <div class="absolute top-1 right-1 rounded bg-brand-100 text-brand-800 text-[10px] font-medium px-1.5 py-0.5">2 tarifs</div>
+              <div class="h-12 w-12 rounded bg-orange-100 grid place-items-center text-2xl">🐑</div>
+              <div class="mt-2 font-medium text-sm">Mouton</div>
+              <div class="text-xs text-gray-500">détails 5 000 / gros 5 800 XOF/kg</div>
+            </button>
+
+            <button class="rounded-lg border border-gray-200 bg-white p-3 text-left hover:border-brand-400 hover:shadow-sm">
+              <div class="h-12 w-12 rounded bg-orange-100 grid place-items-center text-2xl">🐑</div>
+              <div class="mt-2 font-medium text-sm">Côtelettes</div>
+              <div class="text-xs text-gray-500">6 200 XOF/kg</div>
+            </button>
+          </div>
+
+          <p class="mt-3 text-[11px] text-gray-500">
+            Les cartes encadrées brand (<b>Boeuf</b>, <b>Veau</b>, <b>Mouton</b>) ont <b>2 tarifs</b>. Cliquer ajoute la ligne au tarif <i>détails</i> par défaut. Le caissier bascule sur la ligne du panier si la vente est en <i>gros</i>. <b>Le stock décrémenté reste le même</b> dans les deux cas.
+          </p>
+        </div>
+
+        <!-- ====== DROITE : panier ====== -->
+        <aside class="rounded-lg border border-gray-200 bg-gray-50 p-3 flex flex-col h-fit">
+          <div class="flex items-center justify-between mb-2">
+            <div class="font-semibold text-sm">Panier</div>
+            <button class="text-[11px] text-gray-400 hover:text-red-700">vider</button>
+          </div>
+
+          <!-- Lignes -->
+          <div class="divide-y divide-gray-200 bg-white rounded-md border border-gray-200">
+
+            <!-- Ligne 1 : Boeuf avec variante détails sélectionnée -->
+            <div class="p-2.5">
+              <div class="flex items-start justify-between">
+                <div class="flex-1">
+                  <div class="font-medium text-sm">Boeuf</div>
+                  <!-- Segmented control variante -->
+                  <div class="mt-1.5 inline-flex rounded-md border border-brand-300 overflow-hidden text-[11px] font-medium">
+                    <button data-variant="0-detail" class="bg-brand-600 text-white px-2 py-0.5">détails · 3 500</button>
+                    <button data-variant="0-gros" class="bg-white text-brand-800 hover:bg-brand-50 px-2 py-0.5">gros · 4 200</button>
+                  </div>
+                </div>
+                <button class="text-gray-300 hover:text-red-600 text-lg leading-none">×</button>
+              </div>
+              <div class="mt-2 flex items-center justify-between">
+                <div class="flex items-center gap-1.5">
+                  <button class="h-6 w-6 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">−</button>
+                  <input type="number" step="0.001" value="2.500" class="h-6 w-20 rounded border border-gray-300 px-1.5 text-right text-xs tabular-nums" />
+                  <span class="text-[11px] text-gray-500">kg</span>
+                  <button class="h-6 w-6 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">+</button>
+                </div>
+                <div class="text-sm font-semibold tabular-nums" data-line-total="0">8 750 <span class="text-[10px] font-normal">XOF</span></div>
+              </div>
+            </div>
+
+            <!-- Ligne 2 : Boeuf en gros cette fois -->
+            <div class="p-2.5">
+              <div class="flex items-start justify-between">
+                <div class="flex-1">
+                  <div class="font-medium text-sm">Boeuf</div>
+                  <div class="mt-1.5 inline-flex rounded-md border border-brand-300 overflow-hidden text-[11px] font-medium">
+                    <button data-variant="1-detail" class="bg-white text-brand-800 hover:bg-brand-50 px-2 py-0.5">détails · 3 500</button>
+                    <button data-variant="1-gros" class="bg-brand-600 text-white px-2 py-0.5">gros · 4 200</button>
+                  </div>
+                </div>
+                <button class="text-gray-300 hover:text-red-600 text-lg leading-none">×</button>
+              </div>
+              <div class="mt-2 flex items-center justify-between">
+                <div class="flex items-center gap-1.5">
+                  <button class="h-6 w-6 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">−</button>
+                  <input type="number" step="0.001" value="10.000" class="h-6 w-20 rounded border border-gray-300 px-1.5 text-right text-xs tabular-nums" />
+                  <span class="text-[11px] text-gray-500">kg</span>
+                  <button class="h-6 w-6 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">+</button>
+                </div>
+                <div class="text-sm font-semibold tabular-nums">42 000 <span class="text-[10px] font-normal">XOF</span></div>
+              </div>
+            </div>
+
+            <!-- Ligne 3 : Filet (pas de variante) -->
+            <div class="p-2.5">
+              <div class="flex items-start justify-between">
+                <div>
+                  <div class="font-medium text-sm">Filet</div>
+                  <div class="text-[11px] text-gray-500 mt-0.5">7 500 XOF/kg · stock 8,2 kg</div>
+                </div>
+                <button class="text-gray-300 hover:text-red-600 text-lg leading-none">×</button>
+              </div>
+              <div class="mt-2 flex items-center justify-between">
+                <div class="flex items-center gap-1.5">
+                  <button class="h-6 w-6 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">−</button>
+                  <input type="number" step="0.001" value="1.200" class="h-6 w-20 rounded border border-gray-300 px-1.5 text-right text-xs tabular-nums" />
+                  <span class="text-[11px] text-gray-500">kg</span>
+                  <button class="h-6 w-6 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">+</button>
+                </div>
+                <div class="text-sm font-semibold tabular-nums">9 000 <span class="text-[10px] font-normal">XOF</span></div>
+              </div>
+            </div>
+
+            <!-- Ligne 4 : Viande hachée -->
+            <div class="p-2.5">
+              <div class="flex items-start justify-between">
+                <div>
+                  <div class="font-medium text-sm">Viande hachée</div>
+                  <div class="text-[11px] text-gray-500 mt-0.5">4 000 XOF/kg · stock 5,8 kg</div>
+                </div>
+                <button class="text-gray-300 hover:text-red-600 text-lg leading-none">×</button>
+              </div>
+              <div class="mt-2 flex items-center justify-between">
+                <div class="flex items-center gap-1.5">
+                  <button class="h-6 w-6 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">−</button>
+                  <input type="number" step="0.001" value="0.500" class="h-6 w-20 rounded border border-gray-300 px-1.5 text-right text-xs tabular-nums" />
+                  <span class="text-[11px] text-gray-500">kg</span>
+                  <button class="h-6 w-6 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">+</button>
+                </div>
+                <div class="text-sm font-semibold tabular-nums">2 000 <span class="text-[10px] font-normal">XOF</span></div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Total -->
+          <div class="mt-3 space-y-1 text-sm tabular-nums">
+            <div class="flex justify-between text-gray-600"><span>Sous-total</span><span>61 750 XOF</span></div>
+            <div class="flex justify-between text-gray-600"><span>Remise</span><span>0</span></div>
+            <div class="flex justify-between text-base font-semibold pt-1 border-t border-gray-200">
+              <span>Total</span><span>61 750 XOF</span>
+            </div>
+          </div>
+
+          <button class="mt-3 w-full rounded-md bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 text-sm">
+            Encaisser
+          </button>
+          <button class="mt-1.5 w-full rounded-md border border-gray-300 bg-white hover:bg-gray-100 text-gray-700 py-1.5 text-xs font-medium">
+            Mettre en attente
+          </button>
+        </aside>
+      </div>
+
+      <!-- Notes sous le POS -->
+      <div class="mt-5 grid grid-cols-2 gap-3 text-xs">
+        <div class="rounded-md border border-blue-200 bg-blue-50 p-3 text-blue-900">
+          <b>Côté DB :</b> <b>un seul SKU</b> <code>BOEUF</code>. La table <code>products</code> a deux colonnes prix : <code>unit_price</code> (détails) et <code>unit_price_gros</code> (NULL si pas applicable). La ligne <code>sale_item</code> stocke <code>pricing_variant TEXT ∈ ('detail','gros')</code> pour tracer quel tarif a été appliqué — utile pour les stats CA détails vs gros.
+        </div>
+        <div class="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+          <b>Configuration produit :</b> dans <code>/products/[id]</code>, un champ "Prix vente en gros" optionnel. Si renseigné, la carte POS affiche le badge "2 tarifs" + segmented control sur la ligne du panier. Si vide, le produit a un seul prix et pas de toggle.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Toggle variante interactif sur les segmented controls du panier
+    document.querySelectorAll('[data-variant]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = e.currentTarget.dataset.variant.split('-')[0];
+        document.querySelectorAll(`[data-variant^="${id}-"]`).forEach(b => {
+          if (b === e.currentTarget) {
+            b.classList.remove('bg-white','text-brand-800','hover:bg-brand-50');
+            b.classList.add('bg-brand-600','text-white');
+          } else {
+            b.classList.add('bg-white','text-brand-800','hover:bg-brand-50');
+            b.classList.remove('bg-brand-600','text-white');
+          }
+        });
+      });
+    });
+  </script>
+</section>
+
+<!-- =============================================================== -->
+<!-- SCENE 4 : stat rendement (vue agrégée) -->
+<!-- =============================================================== -->
+<section id="scene-4" class="scene">
+  <header class="mb-3">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-brand-700">Scene 4</div>
+    <h2 class="text-xl font-semibold">Stat rendement — 30 derniers jours</h2>
+    <p class="text-sm text-gray-500">Bonus : ce qui devient possible une fois <code>stock_cuttings</code> en place. Pas de nouvelle saisie nécessaire.</p>
+  </header>
+
+  <div class="relative rounded-lg border border-gray-200 bg-white shadow-sm">
+    <span class="badge-sticker">page app</span>
+
+    <div class="p-6">
+      <h3 class="text-xl font-semibold mb-4">Rendement par produit source — mai 2026</h3>
+
+      <div class="overflow-x-auto rounded-md border border-gray-200">
+        <table class="min-w-full divide-y divide-gray-200 text-sm">
+          <thead class="bg-gray-50 text-left">
+            <tr>
+              <th class="px-3 py-2 font-medium text-gray-600">Produit source</th>
+              <th class="px-3 py-2 font-medium text-gray-600">Découpes</th>
+              <th class="px-3 py-2 text-right font-medium text-gray-600">Source totale</th>
+              <th class="px-3 py-2 text-right font-medium text-gray-600">Sorties totales</th>
+              <th class="px-3 py-2 text-right font-medium text-gray-600">Chute totale</th>
+              <th class="px-3 py-2 text-right font-medium text-gray-600">Rendement moyen</th>
+              <th class="px-3 py-2 font-medium text-gray-600">Top 3 sorties</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <tr>
+              <td class="px-3 py-2 font-medium">Carcasse boeuf</td>
+              <td class="px-3 py-2 tabular-nums">42</td>
+              <td class="px-3 py-2 text-right tabular-nums">5 040,000 kg</td>
+              <td class="px-3 py-2 text-right tabular-nums">4 132,800 kg</td>
+              <td class="px-3 py-2 text-right tabular-nums text-amber-900">907,200 kg</td>
+              <td class="px-3 py-2 text-right">
+                <div class="tabular-nums font-semibold">82,0 %</div>
+                <div class="text-[11px] text-gray-500">attendu 80–85 %</div>
+              </td>
+              <td class="px-3 py-2 text-xs">
+                Boeuf 66 % · Jarret 7 % · Filet 2 %
+              </td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2 font-medium">Demi-carcasse</td>
+              <td class="px-3 py-2 tabular-nums">18</td>
+              <td class="px-3 py-2 text-right tabular-nums">1 530,000 kg</td>
+              <td class="px-3 py-2 text-right tabular-nums">1 269,900 kg</td>
+              <td class="px-3 py-2 text-right tabular-nums text-amber-900">260,100 kg</td>
+              <td class="px-3 py-2 text-right">
+                <div class="tabular-nums font-semibold">83,0 %</div>
+                <div class="text-[11px] text-gray-500">attendu 80–85 %</div>
+              </td>
+              <td class="px-3 py-2 text-xs">
+                Boeuf 65 % · Jarret 18 % · Filet 2 %
+              </td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2 font-medium">Viande boeuf détails</td>
+              <td class="px-3 py-2 tabular-nums">96</td>
+              <td class="px-3 py-2 text-right tabular-nums">672,000 kg</td>
+              <td class="px-3 py-2 text-right tabular-nums">576,000 kg</td>
+              <td class="px-3 py-2 text-right tabular-nums text-gray-700">96,000 kg</td>
+              <td class="px-3 py-2 text-right">
+                <div class="tabular-nums font-semibold">85,7 %</div>
+                <div class="text-[11px] text-gray-500">attendu 84–88 %</div>
+              </td>
+              <td class="px-3 py-2 text-xs">
+                Viande hachée 100 %
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="mt-3 text-xs text-gray-500">
+        Cette page sort gratuitement de la modélisation explicite : 1 requête SQL <code>SELECT … GROUP BY source_product_id</code>. Impossible aujourd'hui en legacy (les transferts ne sont pas liés).
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- =============================================================== -->
+<!-- SCENE 5 : décomposition de la perte (avant / après) -->
+<!-- =============================================================== -->
+<section id="scene-5" class="scene">
+  <header class="mb-3">
+    <div class="text-[11px] font-semibold uppercase tracking-wider text-red-700">Scene 5</div>
+    <h2 class="text-xl font-semibold">Décomposition de la perte — ce que vous ne voyiez pas avant</h2>
+    <p class="text-sm text-gray-500">La formule legacy <code>matin + in − out − soir</code> mélangeait <b>3 choses</b> dans un seul chiffre. Le nouveau modèle sépare la chute de découpe (normale) de l'écart d'inventaire (à investiguer).</p>
+  </header>
+
+  <!-- Comparaison AVANT / APRÈS -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+
+    <!-- AVANT -->
+    <div class="relative rounded-lg border-2 border-gray-300 bg-white p-5">
+      <div class="absolute -top-3 left-4 bg-gray-700 text-white text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded">Avant (legacy)</div>
+      <div class="text-xs text-gray-500 mt-2">Formule appliquée</div>
+      <div class="font-mono text-sm mt-1 text-gray-700 bg-gray-50 rounded px-3 py-2">
+        perte = matin + in − out − soir
+      </div>
+
+      <div class="mt-5">
+        <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Résultat sur Boeuf · mai 2026</div>
+        <div class="rounded-lg bg-red-50 border border-red-200 p-4">
+          <div class="text-sm text-red-900 mb-1">Perte totale (un seul chiffre)</div>
+          <div class="text-4xl font-bold text-red-900 tabular-nums">915 <span class="text-lg font-normal">kg</span></div>
+          <div class="mt-3 text-xs text-red-800">
+            ❓ <b>On ne sait pas pourquoi.</b> Est-ce un boucher qui découpe mal ? Un caissier qui détourne ? La hachée bricolée ? Toutes les causes possibles sont mélangées dans ce 915 kg.
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4 text-xs text-gray-600 space-y-1">
+        <div>👉 Si la perte augmente, impossible de cibler l'action corrective.</div>
+        <div>👉 Pas de comparaison possible boucher / mois / saison.</div>
+        <div>👉 Le bricolage hachée (7→6) gonfle le chiffre artificiellement.</div>
+      </div>
+    </div>
+
+    <!-- APRES -->
+    <div class="relative rounded-lg border-2 border-brand-400 bg-brand-50/40 p-5">
+      <div class="absolute -top-3 left-4 bg-brand-600 text-white text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded">Après (nouveau)</div>
+      <div class="text-xs text-brand-800 mt-2">Deux formules distinctes</div>
+      <div class="font-mono text-sm mt-1 text-brand-900 bg-white border border-brand-200 rounded px-3 py-2 space-y-1.5">
+        <div>chute_découpe = source − Σ sorties</div>
+        <div>écart_inv = soir_compté − soir_théorique</div>
+      </div>
+
+      <div class="mt-5">
+        <div class="text-xs text-brand-800 uppercase tracking-wider mb-1">Résultat sur Boeuf · mai 2026</div>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="rounded-lg bg-gray-50 border border-gray-200 p-3">
+            <div class="text-xs text-gray-600 mb-0.5">Chute découpe</div>
+            <div class="text-2xl font-bold text-gray-700 tabular-nums">907 <span class="text-sm font-normal">kg</span></div>
+            <div class="text-[11px] text-gray-500 mt-1">18 % · attendu 15–20 %</div>
+            <div class="mt-1.5">
+              <span class="inline-flex rounded-full bg-green-100 text-green-800 px-2 py-0.5 text-[10px] font-medium">✓ normal</span>
+            </div>
+          </div>
+          <div class="rounded-lg bg-red-50 border border-red-300 p-3">
+            <div class="text-xs text-red-900 mb-0.5">Écart inventaire</div>
+            <div class="text-2xl font-bold text-red-900 tabular-nums">−8 <span class="text-sm font-normal">kg</span></div>
+            <div class="text-[11px] text-red-800 mt-1">non expliqué</div>
+            <div class="mt-1.5">
+              <span class="inline-flex rounded-full bg-red-200 text-red-900 px-2 py-0.5 text-[10px] font-medium">⚠ à investiguer</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4 text-xs text-brand-900 space-y-1">
+        <div>✓ La chute est attendue : la carcasse contient os et gras.</div>
+        <div>✓ L'écart de 8 kg est petit mais VRAIMENT suspect — c'est ça qu'on regarde.</div>
+        <div>✓ Hachée traitée comme découpe : sa "perte" est dans la chute, pas dans l'écart.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Visualisation : barre composition -->
+  <div class="rounded-lg border border-gray-200 bg-white p-5 mb-6">
+    <h3 class="text-sm font-semibold mb-1">Composition du chiffre legacy "915 kg" — décomposé</h3>
+    <p class="text-xs text-gray-500 mb-3">Visuellement, sur 915 kg de "perte" affichés par l'ancienne formule, voici ce qu'on retrouve en réalité :</p>
+
+    <div class="space-y-2">
+      <!-- Chute découpe -->
+      <div>
+        <div class="flex justify-between text-xs mb-1">
+          <span class="font-medium">Chute découpe (os, gras, parage)</span>
+          <span class="tabular-nums text-gray-600"><b>907 kg</b> · 99,1 %</span>
+        </div>
+        <div class="h-6 rounded bg-gray-100 overflow-hidden">
+          <div class="h-full bg-gray-400 grid place-items-center text-[10px] text-white font-medium" style="width: 99.1%">attendu — normal</div>
+        </div>
+      </div>
+
+      <!-- Ecart inventaire -->
+      <div>
+        <div class="flex justify-between text-xs mb-1">
+          <span class="font-medium">Écart d'inventaire (vol, casse, erreur)</span>
+          <span class="tabular-nums text-gray-600"><b>8 kg</b> · 0,9 %</span>
+        </div>
+        <div class="h-6 rounded bg-gray-100 overflow-hidden">
+          <div class="h-full bg-red-500 grid place-items-center text-[10px] text-white font-medium" style="width: 4%">non expliqué</div>
+        </div>
+      </div>
+    </div>
+
+    <p class="mt-3 text-xs text-gray-600">
+      <b>Lecture :</b> 99 % de ce qu'on appelait "perte" était en fait du déchet normal de découpe (os, gras). On s'inquiétait pour rien sur le gros chiffre, mais on passait à côté du vrai problème : un petit écart d'inventaire de 8 kg qui pourrait pointer un vol, une casse non saisie, ou un mouvement oublié.
+    </p>
+  </div>
+
+  <!-- Vue par produit -->
+  <div class="rounded-lg border border-gray-200 bg-white p-5 mb-6">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-sm font-semibold">Vue mensuelle par produit (mai 2026)</h3>
+      <select class="h-8 rounded border border-gray-300 bg-white px-2 text-xs">
+        <option>Boutique principale</option>
+        <option>Abattage</option>
+        <option>Tous PV</option>
+      </select>
+    </div>
+
+    <!-- Encart : chute consommée sur les matières premières, hors tableau -->
+    <div class="mb-3 rounded-md border border-gray-200 bg-gray-50 p-3 text-xs">
+      <div class="flex items-start gap-3">
+        <div class="text-xl">🦴</div>
+        <div class="flex-1">
+          <div class="font-medium text-gray-800">Chute de découpe (matières premières)</div>
+          <div class="text-gray-600 mt-0.5">
+            Sur ce mois, <b>5 040 kg de carcasses boeuf</b> ont été découpées. Sortie : 4 133 kg en produits finis · <b>chute 907 kg (18 %, normal — attendu 15-20 %)</b>.
+            Pour <b>672 kg de viande boeuf</b> transformés en hachée, sortie 576 kg, <b>chute 96 kg (14 %)</b>.
+            La chute n'apparaît PAS dans le tableau ci-dessous parce qu'elle est sortie comptablement au moment de la découpe — c'est attendu, pas une perte.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="overflow-x-auto rounded-md border border-gray-200">
+      <table class="min-w-full divide-y divide-gray-200 text-sm">
+        <thead class="bg-gray-50 text-left">
+          <tr>
+            <th rowspan="2" class="px-3 py-2 font-medium text-gray-600 align-bottom border-r border-gray-200">Produit fini</th>
+            <th rowspan="2" class="px-3 py-2 text-right font-medium text-gray-600 align-bottom border-r border-gray-200">Stock matin<br/><span class="text-[10px] font-normal">(1 mai)</span></th>
+            <th colspan="3" class="px-3 py-1 text-center font-medium text-green-700 bg-green-50/60 border-b border-green-200 border-r border-gray-200">Entrées (+)</th>
+            <th colspan="3" class="px-3 py-1 text-center font-medium text-red-700 bg-red-50/60 border-b border-red-200 border-r border-gray-200">Sorties (−)</th>
+            <th rowspan="2" class="px-3 py-2 text-right font-medium text-gray-600 align-bottom border-r border-gray-200">Stock théorique<br/><span class="text-[10px] font-normal">(31 mai)</span></th>
+            <th rowspan="2" class="px-3 py-2 text-right font-medium text-gray-600 align-bottom">Stock soir compté<br/><span class="text-[10px] font-normal">(31 mai)</span></th>
+            <th rowspan="2" class="px-3 py-2 text-right font-medium text-gray-600 align-bottom">Écart</th>
+            <th rowspan="2" class="px-3 py-2 font-medium text-gray-600 align-bottom">Statut</th>
+          </tr>
+          <tr>
+            <th class="px-3 py-1 text-right font-medium text-[11px] text-green-800 bg-green-50/40">Achats</th>
+            <th class="px-3 py-1 text-right font-medium text-[11px] text-green-800 bg-green-50/40">Découpe in</th>
+            <th class="px-3 py-1 text-right font-medium text-[11px] text-green-800 bg-green-50/40 border-r border-gray-200">Transfert in</th>
+            <th class="px-3 py-1 text-right font-medium text-[11px] text-red-800 bg-red-50/40">Ventes</th>
+            <th class="px-3 py-1 text-right font-medium text-[11px] text-red-800 bg-red-50/40">Découpe out</th>
+            <th class="px-3 py-1 text-right font-medium text-[11px] text-red-800 bg-red-50/40 border-r border-gray-200">Transfert out</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+          <tr>
+            <td class="px-3 py-2 font-medium border-r border-gray-100">Boeuf</td>
+            <td class="px-3 py-2 text-right tabular-nums border-r border-gray-100">50,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-green-800">+3 200,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400 border-r border-gray-100">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-red-800">−3 050,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-red-800 border-r border-gray-100">−20,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-500 border-r border-gray-100">= 180,0</td>
+            <td class="px-3 py-2 text-right tabular-nums font-medium">172,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-red-700 font-semibold">−8,0</td>
+            <td class="px-3 py-2"><span class="rounded-full bg-red-100 text-red-800 px-2 py-0.5 text-[11px]">à investiguer</span></td>
+          </tr>
+          <tr>
+            <td class="px-3 py-2 font-medium border-r border-gray-100">Filet</td>
+            <td class="px-3 py-2 text-right tabular-nums border-r border-gray-100">5,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-green-800">+98,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-green-800 border-r border-gray-100">+3,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-red-800">−95,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400 border-r border-gray-100">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-500 border-r border-gray-100">= 11,0</td>
+            <td class="px-3 py-2 text-right tabular-nums font-medium">9,8</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-700">−1,2</td>
+            <td class="px-3 py-2"><span class="rounded-full bg-gray-100 text-gray-700 px-2 py-0.5 text-[11px]">marginal</span></td>
+          </tr>
+          <tr>
+            <td class="px-3 py-2 font-medium border-r border-gray-100">Jarret</td>
+            <td class="px-3 py-2 text-right tabular-nums border-r border-gray-100">12,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-green-800">+280,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-green-800 border-r border-gray-100">+10,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-red-800">−275,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400 border-r border-gray-100">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-500 border-r border-gray-100">= 27,0</td>
+            <td class="px-3 py-2 text-right tabular-nums font-medium">26,5</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-700">−0,5</td>
+            <td class="px-3 py-2"><span class="rounded-full bg-green-100 text-green-800 px-2 py-0.5 text-[11px]">OK</span></td>
+          </tr>
+          <tr>
+            <td class="px-3 py-2 font-medium border-r border-gray-100">Viande hachée</td>
+            <td class="px-3 py-2 text-right tabular-nums border-r border-gray-100">8,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-green-800">+576,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400 border-r border-gray-100">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-red-800">−570,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-red-800 border-r border-gray-100">−5,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-500 border-r border-gray-100">= 9,0</td>
+            <td class="px-3 py-2 text-right tabular-nums font-medium">7,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-700">−2,0</td>
+            <td class="px-3 py-2"><span class="rounded-full bg-green-100 text-green-800 px-2 py-0.5 text-[11px]">OK</span></td>
+          </tr>
+          <tr>
+            <td class="px-3 py-2 font-medium border-r border-gray-100">Foie</td>
+            <td class="px-3 py-2 text-right tabular-nums border-r border-gray-100">6,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-green-800">+42,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400 border-r border-gray-100">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-red-800">−35,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-400 border-r border-gray-100">—</td>
+            <td class="px-3 py-2 text-right tabular-nums text-gray-500 border-r border-gray-100">= 13,0</td>
+            <td class="px-3 py-2 text-right tabular-nums font-medium">9,0</td>
+            <td class="px-3 py-2 text-right tabular-nums text-red-700 font-semibold">−4,0</td>
+            <td class="px-3 py-2"><span class="rounded-full bg-red-100 text-red-800 px-2 py-0.5 text-[11px]">à investiguer</span></td>
+          </tr>
+        </tbody>
+        <tfoot class="bg-gray-50">
+          <tr>
+            <td class="px-3 py-2 font-semibold border-r border-gray-200">Total</td>
+            <td class="px-3 py-2 text-right tabular-nums font-semibold border-r border-gray-200">81,0</td>
+            <td class="px-3 py-2 text-right tabular-nums font-semibold text-green-900">+42,0</td>
+            <td class="px-3 py-2 text-right tabular-nums font-semibold text-green-900">+4 154,0</td>
+            <td class="px-3 py-2 text-right tabular-nums font-semibold text-green-900 border-r border-gray-200">+13,0</td>
+            <td class="px-3 py-2 text-right tabular-nums font-semibold text-red-900">−4 025,0</td>
+            <td class="px-3 py-2 text-right tabular-nums font-semibold text-gray-400">—</td>
+            <td class="px-3 py-2 text-right tabular-nums font-semibold text-red-900 border-r border-gray-200">−25,0</td>
+            <td class="px-3 py-2 text-right tabular-nums font-semibold text-gray-500 border-r border-gray-200">= 240,0</td>
+            <td class="px-3 py-2 text-right tabular-nums font-semibold">224,3</td>
+            <td class="px-3 py-2 text-right tabular-nums font-semibold text-red-700">−15,7</td>
+            <td class="px-3 py-2 text-[11px] text-gray-500">2 lignes à investiguer</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+      <div class="rounded-md bg-blue-50 border border-blue-200 p-3 text-blue-900">
+        <b>Formule appliquée par ligne :</b>
+        <div class="font-mono text-[10px] mt-1 bg-white border border-blue-200 rounded px-2 py-1 leading-relaxed">
+          théorique = matin + achats + découpe_in + transfert_in<br/>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;− ventes − découpe_out − transfert_out<br/>
+          écart = stock_soir_compté − théorique
+        </div>
+        <div class="mt-1.5 text-[11px] space-y-1">
+          <div><b>Boeuf</b> (transfert out) : 172 − (50 + 3 200 − 3 050 − 20) = 172 − 180 = <b>−8 kg</b></div>
+          <div><b>Jarret</b> (transfert in) : 26,5 − (12 + 280 + 10 − 275) = 26,5 − 27 = <b>−0,5 kg</b></div>
+        </div>
+      </div>
+      <div class="rounded-md bg-amber-50 border border-amber-200 p-3 text-amber-900">
+        <b>Lecture des colonnes mouvement :</b>
+        <ul class="mt-1 space-y-0.5 text-[11px] list-disc pl-4">
+          <li><b>Achats</b> : arrivages fournisseurs (ex : Foie +42 kg).</li>
+          <li><b>Découpe in / out</b> : produit qui entre en stock comme sortie d'une découpe (Boeuf, Filet…), ou qui sort comme matière première d'une nouvelle découpe (rare sur produits finis).</li>
+          <li><b>Transfert in</b> : produit reçu d'un autre PV (ex : Filet +3 kg, Jarret +10 kg reçus de Mbao).</li>
+          <li><b>Transfert out</b> : produit envoyé vers un autre PV (ex : Boeuf −20 kg vers Mbao, Hachée −5 kg vers Mbao).</li>
+        </ul>
+        Au quotidien on ne regarde que la colonne <b>Écart</b>. Les autres servent à comprendre comment on est arrivé au théorique.
+      </div>
+    </div>
+  </div>
+
+  <!-- KPI bandeau global -->
+  <div class="rounded-lg border border-blue-200 bg-blue-50 p-5">
+    <h3 class="text-sm font-semibold text-blue-900 mb-3">Ce que le nouveau modèle vous apporte concrètement</h3>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+      <div class="flex gap-3">
+        <div class="text-2xl">🎯</div>
+        <div>
+          <div class="font-semibold text-blue-900">Cibler l'action corrective</div>
+          <div class="text-xs text-blue-800 mt-0.5">Si l'écart inventaire grimpe sur 1 produit, on enquête sur CE produit. Pas sur tout le rayon.</div>
+        </div>
+      </div>
+      <div class="flex gap-3">
+        <div class="text-2xl">📊</div>
+        <div>
+          <div class="font-semibold text-blue-900">Comparer boucher par boucher</div>
+          <div class="text-xs text-blue-800 mt-0.5">Rendement de M. Diop vs M. Ndiaye sur 30 jours. Coaching basé sur des chiffres.</div>
+        </div>
+      </div>
+      <div class="flex gap-3">
+        <div class="text-2xl">💰</div>
+        <div>
+          <div class="font-semibold text-blue-900">Plus de panique sur les "grosses pertes"</div>
+          <div class="text-xs text-blue-800 mt-0.5">Avant, 900 kg de "perte" mensuelle inquiétait. Maintenant on sait que c'est normal — la vraie perte fait 15 kg.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =============================================================== -->
+<!-- LEGENDE / DECISIONS -->
+<!-- =============================================================== -->
+<section>
+  <div class="rounded-lg border border-gray-200 bg-white p-6">
+    <h2 class="text-lg font-semibold mb-3">Notes de design</h2>
+    <ul class="text-sm space-y-2 text-gray-700 list-disc pl-5">
+      <li><b>Achat fournisseur = inchangé</b>. Pas de bouton spécial. La carcasse rentre comme <code>transfer_in</code> sur le SKU <code>Carcasse boeuf</code>, comme aujourd'hui. Aucune ambiguïté sur ce qu'on a en stock à ce moment-là.</li>
+      <li><b>Découpe = nouvelle primitive</b>. Une seule action atomique qui transfère le stock de la source vers N SKU cibles + chute calculée. Lien explicite entre les mouvements (FK vers <code>stock_cuttings</code>).</li>
+      <li><b>"Détails" et "gros" sont deux <em>tarifs</em>, pas deux SKU</b>. Côté stock il n'y a qu'un seul SKU <code>Boeuf</code>. Le choix se fait à la vente, au moment où le caissier voit ce que le client demande. Le stock décrémenté est le même dans les deux cas — seul le prix appliqué change.</li>
+      <li><b>Modèle DB minimal</b>. Une colonne <code>unit_price_gros NUMERIC NULL</code> sur <code>products</code> (à côté de <code>unit_price</code> qui devient le prix détails par défaut). Sur <code>sale_items</code>, un champ <code>pricing_variant TEXT CHECK IN ('detail','gros')</code>. C'est tout. Si <code>unit_price_gros</code> est NULL, pas de toggle POS.</li>
+      <li><b>Pas de découpe vers "détails" ou "gros"</b>. Quand on découpe une carcasse, on génère du <code>Boeuf</code> tout court. Le boucher ne décide pas à la découpe ce qui ira en gros ou en détails — il ne sait pas encore comment les clients vont demander. La décision est différée au moment de la vente.</li>
+      <li><b>Recette standard</b> : optionnelle, stockée dans <code>cutting_recipes</code>. Sert à pré-remplir le formulaire de découpe, pas à imposer. Phase 2 si demandée.</li>
+      <li><b>Coût</b> : le coût d'achat de la source se répartit sur les sorties au prorata du poids (weight-based). Modifiable plus tard via une colonne <code>cost_allocation_method</code> (FIFO, manuel, etc.).</li>
+      <li><b>Compat stock soir</b> : le boucher compte chaque SKU (détails, gros, filet, jarret) séparément. La grille daily-closing affiche déjà tous les SKU, aucun changement.</li>
+      <li><b>Compat carry-over nuit</b> : aucun impact. Les <code>cutting_in</code> sont des mouvements normaux, le stock soir d'un SKU devient son stock matin J+1.</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer class="border-t border-gray-200 py-6 text-center text-xs text-gray-400">
+  Mockup Matix · Découpe & Achat · {{date}}
+</footer>
+
+</body>
+</html>
