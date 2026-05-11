@@ -370,6 +370,7 @@ export type SaleItem = {
   tax_rate: string;
   tax_amount: string;
   line_total: string;
+  pricing_variant: 'detail' | 'gros' | null;
 };
 
 export type SalePayment = {
@@ -393,6 +394,7 @@ export type CreateSaleInput = {
     unit_price?: number;
     discount_amount?: number;
     tax_rate?: number;
+    pricing_variant?: 'detail' | 'gros';
   }>;
   payments?: Array<{ method: PaymentMethod; amount: number; reference?: string }>;
   notes?: string;

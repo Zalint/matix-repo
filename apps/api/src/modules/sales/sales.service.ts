@@ -50,6 +50,12 @@ export type SaleItem = {
   tax_rate: string;
   tax_amount: string;
   line_total: string;
+  pricing_variant: 'detail' | 'gros' | null;
+};
+
+type ProductPriceInfo = {
+  detail: number;
+  gros: number | null;
 };
 
 export type SalePayment = {
@@ -253,7 +259,8 @@ export class SalesService {
     const sale = saleRows.rows[0];
 
     const items = await client.query<SaleItem>(
-      `SELECT id, sale_id, product_id, quantity, unit_price, discount_amount, tax_rate, tax_amount, line_total
+      `SELECT id, sale_id, product_id, quantity, unit_price, discount_amount,
+              tax_rate, tax_amount, line_total, pricing_variant
          FROM sale_items WHERE sale_id = $1 ORDER BY created_at`,
       [id],
     );
@@ -341,9 +348,12 @@ export class SalesService {
     const itemRows: SaleItem[] = [];
     for (const i of itemsCalc) {
       const r = await client.query<SaleItem>(
-        `INSERT INTO sale_items (tenant_id, sale_id, product_id, quantity, unit_price, discount_amount, tax_rate, tax_amount, line_total)
-         VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING id, sale_id, product_id, quantity, unit_price, discount_amount, tax_rate, tax_amount, line_total`,
+        `INSERT INTO sale_items
+           (tenant_id, sale_id, product_id, quantity, unit_price,
+            discount_amount, tax_rate, tax_amount, line_total, pricing_variant)
+         VALUES (current_setting('app.tenant_id')::uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id, sale_id, product_id, quantity, unit_price,
+                   discount_amount, tax_rate, tax_amount, line_total, pricing_variant`,
         [
           sale.id,
           i.product_id,
@@ -353,6 +363,7 @@ export class SalesService {
           i.tax_rate.toFixed(4),
           i.tax_amount.toFixed(2),
           i.line_total.toFixed(2),
+          i.pricing_variant,
         ],
       );
       itemRows.push(r.rows[0]);
@@ -503,14 +514,25 @@ export class SalesService {
   private async fetchProductPrices(
     client: PoolClient,
     productIds: string[],
-  ): Promise<Map<string, number>> {
+  ): Promise<Map<string, ProductPriceInfo>> {
     if (productIds.length === 0) return new Map();
-    const { rows } = await client.query<{ id: string; unit_price: string }>(
-      `SELECT id, unit_price FROM products WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL`,
+    const { rows } = await client.query<{
+      id: string;
+      unit_price: string;
+      unit_price_gros: string | null;
+    }>(
+      `SELECT id, unit_price, unit_price_gros
+         FROM products
+        WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL`,
       [productIds],
     );
-    const map = new Map<string, number>();
-    for (const r of rows) map.set(r.id, Number(r.unit_price));
+    const map = new Map<string, ProductPriceInfo>();
+    for (const r of rows) {
+      map.set(r.id, {
+        detail: Number(r.unit_price),
+        gros: r.unit_price_gros !== null ? Number(r.unit_price_gros) : null,
+      });
+    }
     for (const id of productIds) {
       if (!map.has(id)) throw new BadRequestException(`Produit ${id} introuvable`);
     }
@@ -519,7 +541,7 @@ export class SalesService {
 
   private calcItem(
     dto: CreateSaleItemDto,
-    prices: Map<string, number>,
+    prices: Map<string, ProductPriceInfo>,
   ): {
     product_id: string;
     quantity: number;
@@ -528,8 +550,36 @@ export class SalesService {
     tax_rate: number;
     tax_amount: number;
     line_total: number;
+    pricing_variant: 'detail' | 'gros' | null;
   } {
-    const unit_price = dto.unit_price ?? prices.get(dto.product_id)!;
+    const priceInfo = prices.get(dto.product_id)!;
+
+    // Détermine le tarif appliqué :
+    //  - si dto.unit_price fourni : c'est un override explicite, on garde le pricing_variant
+    //    fourni s'il existe (sinon null).
+    //  - sinon, on calcule depuis le variant :
+    //      'gros' → priceInfo.gros (erreur si null côté produit)
+    //      'detail' ou omis → priceInfo.detail
+    let pricing_variant: 'detail' | 'gros' | null = dto.pricing_variant ?? null;
+    let unit_price: number;
+    if (dto.unit_price !== undefined) {
+      unit_price = dto.unit_price;
+      // garde le variant tel quel (peut être null) — l'override prime
+    } else if (dto.pricing_variant === 'gros') {
+      if (priceInfo.gros === null) {
+        throw new BadRequestException(
+          `Produit ${dto.product_id} n'a pas de tarif gros configuré.`,
+        );
+      }
+      unit_price = priceInfo.gros;
+      pricing_variant = 'gros';
+    } else {
+      unit_price = priceInfo.detail;
+      // Si le produit a un tarif gros et le caissier n'a rien précisé,
+      // on consigne 'detail' explicitement pour la stat.
+      pricing_variant = priceInfo.gros !== null ? 'detail' : null;
+    }
+
     const discount = dto.discount_amount ?? 0;
     const tax_rate = dto.tax_rate ?? 0;
     const gross = dto.quantity * unit_price - discount;
@@ -544,6 +594,7 @@ export class SalesService {
       tax_rate,
       tax_amount,
       line_total,
+      pricing_variant,
     };
   }
 

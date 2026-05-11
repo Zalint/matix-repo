@@ -7,7 +7,10 @@ export type CartLine = {
   product_id: string;
   sku: string;
   name: string;
-  unit_price: number;
+  unit_price: number;            // prix appliqué (= unit_price_detail si variant='detail', sinon unit_price_gros)
+  unit_price_detail: number;     // prix détails du produit (snapshot au moment de l'add)
+  unit_price_gros: number | null;// prix gros du produit (null = pas de toggle dispo)
+  pricing_variant: 'detail' | 'gros' | null;  // null = produit sans tarif gros
   quantity: number;
 };
 
@@ -29,7 +32,21 @@ export function useCart(pointOfSaleId: string) {
     if (typeof window === 'undefined') return;
     try {
       const raw = window.localStorage.getItem(storageKey);
-      setLines(raw ? (JSON.parse(raw) as CartLine[]) : []);
+      const parsed = raw ? (JSON.parse(raw) as Partial<CartLine>[]) : [];
+      // Migration douce : si une ligne ancienne version (sans pricing_variant) est
+      // hydratée, on la complète avec des valeurs par défaut. Pas de toggle gros
+      // dispo tant que le panier n'est pas reset.
+      const migrated: CartLine[] = parsed.map((l) => ({
+        product_id: String(l.product_id ?? ''),
+        sku: String(l.sku ?? ''),
+        name: String(l.name ?? ''),
+        unit_price: Number(l.unit_price ?? 0),
+        unit_price_detail: Number(l.unit_price_detail ?? l.unit_price ?? 0),
+        unit_price_gros: l.unit_price_gros ?? null,
+        pricing_variant: (l.pricing_variant as CartLine['pricing_variant']) ?? null,
+        quantity: Number(l.quantity ?? 0),
+      }));
+      setLines(migrated.filter((l) => l.product_id));
     } catch {
       setLines([]);
     }
@@ -51,9 +68,17 @@ export function useCart(pointOfSaleId: string) {
 
   const addProduct = useCallback(
     (product: Product, quantity = 1) => {
-      const idx = lines.findIndex((l) => l.product_id === product.id);
+      const idx = lines.findIndex(
+        (l) => l.product_id === product.id && l.pricing_variant !== 'gros',
+      );
+      // Si le produit a un tarif gros, on regroupe par (product, variant) — l'ajout
+      // par défaut tape sur la ligne 'detail' existante. Cliquer "gros" sur cette
+      // ligne après coup bascule sa variante sans créer de doublon.
+      const detail = Number(product.unit_price);
+      const gros = product.unit_price_gros !== null ? Number(product.unit_price_gros) : null;
+      const variant: 'detail' | 'gros' | null = gros !== null ? 'detail' : null;
       if (idx >= 0) {
-        // Existe déjà → +quantity
+        // Existe déjà → +quantity (on garde sa variante)
         const next = [...lines];
         next[idx] = { ...next[idx], quantity: next[idx].quantity + quantity };
         persist(next);
@@ -64,7 +89,11 @@ export function useCart(pointOfSaleId: string) {
             product_id: product.id,
             sku: product.sku,
             name: product.name,
-            unit_price: Number(product.unit_price),
+            // Au premier ajout, on tape toujours sur le tarif détails — l'utilisateur bascule en gros via le segmented control si besoin
+            unit_price: detail,
+            unit_price_detail: detail,
+            unit_price_gros: gros,
+            pricing_variant: variant,
             quantity,
           },
         ]);
@@ -75,7 +104,19 @@ export function useCart(pointOfSaleId: string) {
 
   const updateLine = useCallback(
     (idx: number, patch: Partial<CartLine>) => {
-      persist(lines.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+      persist(
+        lines.map((l, i) => {
+          if (i !== idx) return l;
+          const next = { ...l, ...patch };
+          // Si on bascule le variant, recalcule unit_price depuis le snapshot.
+          if (patch.pricing_variant !== undefined && patch.pricing_variant !== l.pricing_variant) {
+            next.unit_price = patch.pricing_variant === 'gros' && l.unit_price_gros !== null
+              ? l.unit_price_gros
+              : l.unit_price_detail;
+          }
+          return next;
+        }),
+      );
     },
     [lines, persist],
   );

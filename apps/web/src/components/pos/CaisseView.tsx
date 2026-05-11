@@ -67,6 +67,7 @@ export function CaisseView({
           product_id: l.product_id,
           quantity: l.quantity,
           unit_price: l.unit_price,
+          ...(l.pricing_variant ? { pricing_variant: l.pricing_variant } : {}),
         })),
         payments: input.payments as CreateSaleInput['payments'],
         ...(input.notes ? { notes: input.notes } : {}),

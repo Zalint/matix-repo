@@ -81,7 +81,7 @@ export function Cart({
           <ul className="space-y-2">
             {lines.map((l, i) => (
               <li
-                key={`${l.product_id}-${i}`}
+                key={`${l.product_id}-${l.pricing_variant ?? 'simple'}-${i}`}
                 className="grid grid-cols-[1fr_auto_auto] items-center gap-2 rounded-md border border-gray-100 bg-gray-50 p-2"
               >
                 <div className="min-w-0">
@@ -89,6 +89,33 @@ export function Cart({
                   <div className="text-xs text-gray-500">
                     {formatXof(l.unit_price)} × {l.quantity}
                   </div>
+                  {/* Segmented control détails / gros — visible uniquement si le produit a 2 tarifs */}
+                  {l.pricing_variant !== null && l.unit_price_gros !== null && (
+                    <div className="mt-1.5 inline-flex overflow-hidden rounded-md border border-brand-300 text-[10px] font-medium">
+                      <button
+                        type="button"
+                        onClick={() => onUpdateLine(i, { pricing_variant: 'detail' })}
+                        className={
+                          l.pricing_variant === 'detail'
+                            ? 'bg-brand-600 px-2 py-0.5 text-white'
+                            : 'bg-white px-2 py-0.5 text-brand-800 hover:bg-brand-50'
+                        }
+                      >
+                        détails · {formatXof(l.unit_price_detail)}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onUpdateLine(i, { pricing_variant: 'gros' })}
+                        className={
+                          l.pricing_variant === 'gros'
+                            ? 'bg-brand-600 px-2 py-0.5 text-white'
+                            : 'bg-white px-2 py-0.5 text-brand-800 hover:bg-brand-50'
+                        }
+                      >
+                        gros · {formatXof(l.unit_price_gros)}
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-1">
                   <button
