@@ -280,7 +280,10 @@ export type StockLevel = {
   updated_at: string;
 };
 
-export type MovementType = 'opening' | 'closing' | 'sale' | 'return' | 'adjustment' | 'transfer_in' | 'transfer_out';
+export type MovementType =
+  | 'opening' | 'closing' | 'sale' | 'return' | 'adjustment'
+  | 'transfer_in' | 'transfer_out'
+  | 'cutting_in' | 'cutting_out';
 
 export type StockMovement = {
   id: string;

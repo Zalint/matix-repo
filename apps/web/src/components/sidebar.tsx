@@ -14,11 +14,17 @@ export function Sidebar() {
     { href: '/customers', label: t('customers') },
     { href: '/sales', label: 'Ventes' },
   ];
+  // Ordre logique du workflow journalier :
+  //   matin → transferts → découpes → soir → réconciliation
+  // + "Niveaux de stock" en tête pour la consultation rapide d'état.
   const OPERATIONS_NAV = [
-    { href: '/operations/inventory', label: 'Stock' },
+    { href: '/operations/inventory', label: 'Niveaux de stock' },
+    { href: '/operations/inventory/morning', label: 'Stock matin' },
+    { href: '/operations/inventory/transfers', label: 'Transferts' },
     { href: '/operations/inventory/cuttings', label: 'Découpes' },
-    { href: '/operations/inventory/daily', label: 'Stock soir (saisie)' },
+    { href: '/operations/inventory/daily', label: 'Stock soir' },
     { href: '/operations/reconciliation', label: 'Réconciliation' },
+    { href: '/operations/inventory/journal', label: 'Journal (audit)' },
   ];
   const SETTINGS_NAV = [
     { href: '/settings/team', label: 'Équipe' },
