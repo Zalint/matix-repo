@@ -48,15 +48,20 @@ function closingTimestamp(): string {
 }
 
 // ============================================================================
-// Mapping PV : legacy nom Excel → code Matix
+// Mapping PV : pour les tests, TOUS les PV legacy convergent vers le seul PV
+// "Mbao" du tenant mata-mbao. Les volumes se cumulent naturellement (un Boeuf
+// 30kg Mbao + 78kg O.Foire devient 108kg Mbao), les transferts internes au
+// tenant se neutralisent (un transfer_out Abattage + un transfer_in Chambre
+// froide cumulés sur Mbao s'annulent en net 0).
 // ============================================================================
+const TARGET_POS = { code: 'mbao', name: 'Mbao' };
 const POS_MAP: Record<string, { code: string; name: string }> = {
-  Mbao: { code: 'mbao', name: 'Mbao' },
-  'O.Foire': { code: 'o-foire', name: 'Ouest Foire' },
-  'Sacre Coeur': { code: 'sacre-coeur', name: 'Sacré Cœur' },
-  'Chambre froide': { code: 'chambre-froide', name: 'Chambre froide' },
-  Abattage: { code: 'abattage', name: 'Abattage' },
-  'Keur Massar': { code: 'keur-massar', name: 'Keur Massar' },
+  Mbao: TARGET_POS,
+  'O.Foire': TARGET_POS,
+  'Sacre Coeur': TARGET_POS,
+  'Chambre froide': TARGET_POS,
+  Abattage: TARGET_POS,
+  'Keur Massar': TARGET_POS,
 };
 
 // ============================================================================
@@ -279,12 +284,13 @@ async function main() {
     const catDivers = await getOrCreateCategory(adminPool, tenantId, 'divers', 'Divers', 'Divers');
     console.log(`✅ Catégories Bovin/Ovin/Volaille/Divers`);
 
-    // 5) PV
+    // 5) PV cible (un seul) — tous les PV legacy convergent dessus
+    const mbaoPosId = await getOrCreatePos(adminPool, tenantId, TARGET_POS.code, TARGET_POS.name);
     const posIdsByName: Record<string, string> = {};
-    for (const [legacy, info] of Object.entries(POS_MAP)) {
-      posIdsByName[legacy] = await getOrCreatePos(adminPool, tenantId, info.code, info.name);
+    for (const legacy of Object.keys(POS_MAP)) {
+      posIdsByName[legacy] = mbaoPosId;
     }
-    console.log(`✅ ${Object.keys(POS_MAP).length} points de vente`);
+    console.log(`✅ PV cible : ${TARGET_POS.name} (${mbaoPosId}) — ${Object.keys(POS_MAP).length} PV legacy redirigés dessus`);
 
     // 6) Produits
     const productIdBySku: Record<string, string> = {};
@@ -458,16 +464,23 @@ async function main() {
     console.log(`✅ Ventes : ${salesCount} commandes / ${itemsCount} lignes`);
 
     // 11) Stock soir → stock_daily_closings (source='manual')
-    let closingCount = 0;
+    // Note : comme tous les PV legacy convergent sur Mbao, plusieurs lignes
+    // Stock Soir avec le même produit (ex: Boeuf à Mbao + Boeuf à O.Foire)
+    // arrivent ici sur le même (date, pos, product). On les CUMULE via
+    // ON CONFLICT DO UPDATE en additionnant les quantités saisies.
+    const closingCumulated = new Map<string, number>();
     for (const row of stockSoir) {
       if (!row.pos || !row.product || row.quantity === null) continue;
-      const posId = posIdsByName[row.pos];
-      if (!posId) { console.warn(`⚠ PV inconnu : ${row.pos} (soir)`); continue; }
       const resolved = resolveProduct(row.product);
       const productId = productIdBySku[resolved.sku];
       if (!productId) { console.warn(`⚠ Produit inconnu : ${row.product} (soir)`); continue; }
-
-      // Recompute le théorique pour la cohérence : SUM(stock_movements) du jour pour ce produit/pos.
+      const key = `${mbaoPosId}:${productId}`;
+      closingCumulated.set(key, (closingCumulated.get(key) ?? 0) + (row.quantity ?? 0));
+    }
+    let closingCount = 0;
+    for (const [key, totalQty] of Array.from(closingCumulated.entries())) {
+      const [posId, productId] = key.split(':');
+      // Recompute le théorique : SUM(stock_movements) du jour pour ce produit/pos.
       const theoriqueRow = await adminPool.query<{ total: string | null }>(
         `SELECT COALESCE(SUM(quantity), 0)::text AS total
            FROM stock_movements
@@ -476,7 +489,6 @@ async function main() {
         [tenantId, productId, posId, TODAY_ISO_DATE],
       );
       const theorique = Number(theoriqueRow.rows[0]?.total ?? 0);
-
       await adminPool.query(
         `INSERT INTO stock_daily_closings
            (tenant_id, closing_date, point_of_sale_id, product_id,
@@ -487,11 +499,11 @@ async function main() {
                quantity_theorique = EXCLUDED.quantity_theorique,
                source = 'manual',
                set_at = EXCLUDED.set_at`,
-        [tenantId, TODAY_ISO_DATE, posId, productId, row.quantity, theorique, closingTimestamp()],
+        [tenantId, TODAY_ISO_DATE, posId, productId, totalQty, theorique, closingTimestamp()],
       );
       closingCount++;
     }
-    console.log(`✅ Stock soir : ${closingCount} closings`);
+    console.log(`✅ Stock soir : ${closingCount} closings (${stockSoir.length} lignes legacy cumulées)`);
 
     console.log(`\n🎉 Seed terminé sur ${TENANT_SLUG} pour ${TODAY_ISO_DATE}.`);
     console.log(`   Total ventes O.Foire : ${ventes.reduce((s, v) => s + v.amount, 0).toLocaleString('fr-FR')} XOF`);
