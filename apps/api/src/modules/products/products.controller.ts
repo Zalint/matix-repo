@@ -17,12 +17,15 @@ class CreateProductDto {
   @IsString() sku!: string;
   @IsString() name!: string;
   @IsNumber() @Min(0) unit_price!: number;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsNumber() @Min(0) unit_price_gros?: number | null;
   @IsOptional() @IsUUID() category_id?: string;
 }
 
 class UpdateProductDto {
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsNumber() @Min(0) unit_price?: number;
+  // unit_price_gros peut être null pour retirer le tarif gros
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsNumber() @Min(0) unit_price_gros?: number | null;
   // category_id peut être null pour retirer la catégorie
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsUUID() category_id?: string | null;
 }

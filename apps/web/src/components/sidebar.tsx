@@ -16,6 +16,7 @@ export function Sidebar() {
   ];
   const OPERATIONS_NAV = [
     { href: '/operations/inventory', label: 'Stock' },
+    { href: '/operations/inventory/cuttings', label: 'Découpes' },
     { href: '/operations/inventory/daily', label: 'Stock soir (saisie)' },
     { href: '/operations/reconciliation', label: 'Réconciliation' },
   ];

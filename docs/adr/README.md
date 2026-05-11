@@ -12,6 +12,7 @@ Décisions structurelles de Matix. Format : [MADR-light](https://adr.github.io/m
 | [0006](0006-licensing-permissions.md) | Licensing & Permissions (orthogonal) | Proposed |
 | [0007](0007-catalog-deepaudit-update.md) | Mise à jour catalogue après audit approfondi | Proposed |
 | [0008](0008-stock-soir-modes.md) | Stock soir : deux modes (manuel/automatique) + cron carry-over | Proposed |
+| [0009](0009-stock-cuttings.md) | Découpes : nouvelle primitive de mouvement + tarif gros à la vente | Proposed |
 
 ## Convention
 

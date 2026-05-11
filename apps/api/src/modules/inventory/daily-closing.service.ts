@@ -79,7 +79,13 @@ export class DailyClosingService {
                    THEN m.quantity ELSE 0 END)         AS adjustments,
           SUM(CASE WHEN m.movement_type = 'return'
                     AND DATE(m.performed_at AT TIME ZONE 'UTC') = $1::date
-                   THEN m.quantity ELSE 0 END)         AS retours
+                   THEN m.quantity ELSE 0 END)         AS retours,
+          SUM(CASE WHEN m.movement_type = 'cutting_in'
+                    AND DATE(m.performed_at AT TIME ZONE 'UTC') = $1::date
+                   THEN m.quantity ELSE 0 END)         AS cuttings_in,
+          SUM(CASE WHEN m.movement_type = 'cutting_out'
+                    AND DATE(m.performed_at AT TIME ZONE 'UTC') = $1::date
+                   THEN -m.quantity ELSE 0 END)        AS cuttings_out
         FROM stock_movements m
         WHERE DATE(m.performed_at AT TIME ZONE 'UTC') = $1::date
           ${posFilter}
@@ -102,6 +108,8 @@ export class DailyClosingService {
         COALESCE(mv.transferts_out, 0)::text     AS transferts_out,
         COALESCE(mv.adjustments, 0)::text        AS adjustments,
         COALESCE(mv.retours, 0)::text            AS retours,
+        COALESCE(mv.cuttings_in, 0)::text        AS cuttings_in,
+        COALESCE(mv.cuttings_out, 0)::text       AS cuttings_out,
         sdc.id                                   AS closing_id,
         sdc.quantity::text                       AS closing_quantity,
         sdc.quantity_theorique::text             AS closing_theorique,
@@ -388,7 +396,11 @@ export class DailyClosingService {
     const tOut = Number(r.transferts_out);
     const adj = Number(r.adjustments);
     const ret = Number(r.retours);
-    const theorique = stockMatin - ventes + tIn - tOut + adj + ret;
+    const cIn = Number(r.cuttings_in);
+    const cOut = Number(r.cuttings_out);
+    // Note : cuttings_out est stocké en valeur positive (le SUM CASE inverse le signe
+    // pour matcher la sémantique "quantité sortie"). Cohérent avec transferts_out.
+    const theorique = stockMatin - ventes + tIn - tOut + adj + ret + cIn - cOut;
     return {
       product: {
         id: r.product_id,
@@ -411,6 +423,8 @@ export class DailyClosingService {
         transferts_out: tOut,
         adjustments: adj,
         retours: ret,
+        cuttings_in: cIn,
+        cuttings_out: cOut,
         stock_theorique: theorique,
       },
       closing: r.closing_id
@@ -448,6 +462,8 @@ type RawDailyRow = {
   transferts_out: string;
   adjustments: string;
   retours: string;
+  cuttings_in: string;
+  cuttings_out: string;
   closing_id: string | null;
   closing_quantity: string | null;
   closing_theorique: string | null;
@@ -478,6 +494,8 @@ export type DailyClosingView = {
     transferts_out: number;
     adjustments: number;
     retours: number;
+    cuttings_in: number;
+    cuttings_out: number;
     stock_theorique: number;
   };
   closing: {

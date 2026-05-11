@@ -48,10 +48,47 @@ export type Product = {
   sku: string;
   name: string;
   unit_price: string;
+  unit_price_gros: string | null;  // NULL = pas de tarif gros (= pas de toggle POS)
   category_id: string | null;
   stock_mode: StockMode;
   created_at: string;
   updated_at: string;
+};
+
+export type Cutting = {
+  id: string;
+  point_of_sale_id: string;
+  performed_at: string;
+  source_product_id: string;
+  source_quantity: number;
+  total_outputs: number;
+  waste_quantity: number;
+  waste_pct: number;
+  performed_by: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  outputs: CuttingOutput[];
+};
+
+export type CuttingOutput = {
+  id: string;
+  cutting_id: string;
+  product_id: string;
+  quantity: number;
+  unit_cost: number | null;
+  created_at: string;
+};
+
+export type CuttingYieldStat = {
+  source_product_id: string;
+  source_sku: string;
+  source_name: string;
+  cuttings_count: number;
+  source_total: number;
+  outputs_total: number;
+  waste_total: number;
+  yield_pct: number;
 };
 
 export type DailyClosingView = {
@@ -493,7 +530,12 @@ export const api = {
     update: (
       a: AuthState,
       id: string,
-      body: Partial<{ name: string; unit_price: number; category_id: string | null }>,
+      body: Partial<{
+        name: string;
+        unit_price: number;
+        unit_price_gros: number | null;
+        category_id: string | null;
+      }>,
     ) => apiFetch<Product>(a, `/products/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     setStockMode: (a: AuthState, id: string, mode: StockMode) =>
       apiFetch<Product>(a, `/products/${id}/stock-mode`, {
@@ -604,6 +646,51 @@ export const api = {
           method: 'PUT',
           body: JSON.stringify(body),
         }),
+    },
+    cuttings: {
+      list: (
+        a: AuthState,
+        opts?: {
+          date?: string;
+          point_of_sale_id?: string;
+          source_product_id?: string;
+          limit?: number;
+          offset?: number;
+        },
+      ) => {
+        const qs = new URLSearchParams();
+        if (opts?.date) qs.set('date', opts.date);
+        if (opts?.point_of_sale_id) qs.set('point_of_sale_id', opts.point_of_sale_id);
+        if (opts?.source_product_id) qs.set('source_product_id', opts.source_product_id);
+        if (opts?.limit) qs.set('limit', String(opts.limit));
+        if (opts?.offset) qs.set('offset', String(opts.offset));
+        return apiFetch<Cutting[]>(a, `/inventory/cuttings${qs.toString() ? '?' + qs : ''}`);
+      },
+      getById: (a: AuthState, id: string) => apiFetch<Cutting>(a, `/inventory/cuttings/${id}`),
+      create: (
+        a: AuthState,
+        body: {
+          point_of_sale_id: string;
+          source_product_id: string;
+          source_quantity: number;
+          source_unit_cost?: number;
+          outputs: Array<{ product_id: string; quantity: number; unit_cost?: number }>;
+          performed_at?: string;
+          notes?: string;
+        },
+      ) =>
+        apiFetch<Cutting>(a, '/inventory/cuttings', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+      yieldStats: (
+        a: AuthState,
+        opts: { from: string; to: string; point_of_sale_id?: string },
+      ) => {
+        const qs = new URLSearchParams({ from: opts.from, to: opts.to });
+        if (opts.point_of_sale_id) qs.set('point_of_sale_id', opts.point_of_sale_id);
+        return apiFetch<CuttingYieldStat[]>(a, `/inventory/cuttings/stats/yield?${qs}`);
+      },
     },
   },
   sales: {
