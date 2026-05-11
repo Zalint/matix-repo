@@ -10,7 +10,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsIn, IsNumber, IsOptional, IsString, IsUUID, Min, ValidateIf } from 'class-validator';
+import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID, Min, ValidateIf } from 'class-validator';
 import { ProductsService, type StockMode } from './products.service';
 
 class CreateProductDto {
@@ -18,6 +18,7 @@ class CreateProductDto {
   @IsString() name!: string;
   @IsNumber() @Min(0) unit_price!: number;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsNumber() @Min(0) unit_price_gros?: number | null;
+  @IsOptional() @IsBoolean() gros_enabled?: boolean;
   @IsOptional() @IsUUID() category_id?: string;
 }
 
@@ -26,6 +27,7 @@ class UpdateProductDto {
   @IsOptional() @IsNumber() @Min(0) unit_price?: number;
   // unit_price_gros peut être null pour retirer le tarif gros
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsNumber() @Min(0) unit_price_gros?: number | null;
+  @IsOptional() @IsBoolean() gros_enabled?: boolean;
   // category_id peut être null pour retirer la catégorie
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsUUID() category_id?: string | null;
 }

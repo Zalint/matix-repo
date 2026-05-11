@@ -22,6 +22,7 @@ export function Sidebar() {
   ];
   const SETTINGS_NAV = [
     { href: '/settings/team', label: 'Équipe' },
+    { href: '/settings/pricing', label: 'Tarification' },
     { href: '/settings/licensing', label: 'Modules & licences' },
     { href: '/settings/workflows', label: 'Workflows' },
   ];

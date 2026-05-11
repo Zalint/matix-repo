@@ -48,11 +48,27 @@ export type Product = {
   sku: string;
   name: string;
   unit_price: string;
-  unit_price_gros: string | null;  // NULL = pas de tarif gros (= pas de toggle POS)
+  /** Override explicite du prix gros. NULL = utilise le rabais tenant (calculé serveur). */
+  unit_price_gros: string | null;
+  /** Si false, le produit n'a pas d'option vente en gros (pas de toggle POS). */
+  gros_enabled: boolean;
+  /**
+   * Prix gros effectif appliqué :
+   *  - null si gros_enabled=false
+   *  - unit_price_gros si override
+   *  - sinon max(0, unit_price - tenant.default_gros_rebate_xof)
+   * Calculé par l'API, pas modifiable directement.
+   */
+  effective_gros_price: string | null;
   category_id: string | null;
   stock_mode: StockMode;
   created_at: string;
   updated_at: string;
+};
+
+export type TenantSettings = {
+  tenant_id: string;
+  default_gros_rebate_xof: number;
 };
 
 export type Cutting = {
@@ -527,8 +543,17 @@ export const api = {
       const qs = opts?.category_id ? `?category_id=${opts.category_id}` : '';
       return apiFetch<Product[]>(a, `/products${qs}`);
     },
-    create: (a: AuthState, body: { sku: string; name: string; unit_price: number; category_id?: string }) =>
-      apiFetch<Product>(a, '/products', { method: 'POST', body: JSON.stringify(body) }),
+    create: (
+      a: AuthState,
+      body: {
+        sku: string;
+        name: string;
+        unit_price: number;
+        unit_price_gros?: number | null;
+        gros_enabled?: boolean;
+        category_id?: string;
+      },
+    ) => apiFetch<Product>(a, '/products', { method: 'POST', body: JSON.stringify(body) }),
     update: (
       a: AuthState,
       id: string,
@@ -536,6 +561,7 @@ export const api = {
         name: string;
         unit_price: number;
         unit_price_gros: number | null;
+        gros_enabled: boolean;
         category_id: string | null;
       }>,
     ) => apiFetch<Product>(a, `/products/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
@@ -563,6 +589,14 @@ export const api = {
   pointsOfSale: {
     list: (a: AuthState, opts?: { activeOnly?: boolean }) =>
       apiFetch<PointOfSale[]>(a, `/points-of-sale${opts?.activeOnly ? '?active_only=true' : ''}`),
+  },
+  tenantSettings: {
+    get: (a: AuthState) => apiFetch<TenantSettings>(a, '/settings/tenant'),
+    update: (a: AuthState, body: { default_gros_rebate_xof?: number }) =>
+      apiFetch<TenantSettings>(a, '/settings/tenant', {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
   },
   inventory: {
     levels: (a: AuthState, opts?: { product_id?: string; point_of_sale_id?: string }) => {

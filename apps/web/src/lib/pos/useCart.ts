@@ -9,7 +9,8 @@ export type CartLine = {
   name: string;
   unit_price: number;            // prix appliqué (= unit_price_detail si variant='detail', sinon unit_price_gros)
   unit_price_detail: number;     // prix détails du produit (snapshot au moment de l'add)
-  unit_price_gros: number | null;// prix gros du produit (null = pas de toggle dispo)
+  /** Prix gros effectif (override ou calculé via rabais tenant). null = pas de toggle dispo. */
+  unit_price_gros: number | null;
   pricing_variant: 'detail' | 'gros' | null;  // null = produit sans tarif gros
   quantity: number;
 };
@@ -75,7 +76,11 @@ export function useCart(pointOfSaleId: string) {
       // par défaut tape sur la ligne 'detail' existante. Cliquer "gros" sur cette
       // ligne après coup bascule sa variante sans créer de doublon.
       const detail = Number(product.unit_price);
-      const gros = product.unit_price_gros !== null ? Number(product.unit_price_gros) : null;
+      // On snapshote le prix gros EFFECTIF (calculé serveur : override OU rabais auto).
+      // Si gros_enabled=false, effective_gros_price est null → pas de toggle.
+      const gros = product.effective_gros_price !== null
+        ? Number(product.effective_gros_price)
+        : null;
       const variant: 'detail' | 'gros' | null = gros !== null ? 'detail' : null;
       if (idx >= 0) {
         // Existe déjà → +quantity (on garde sa variante)

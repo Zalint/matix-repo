@@ -516,21 +516,30 @@ export class SalesService {
     productIds: string[],
   ): Promise<Map<string, ProductPriceInfo>> {
     if (productIds.length === 0) return new Map();
+    // Le prix gros effectif est calculé via JOIN sur tenants (default_gros_rebate_xof).
+    // On garde l'override unit_price_gros si présent, sinon on applique le rabais
+    // tenant sur unit_price. gros=NULL si le produit n'a pas l'option activée.
     const { rows } = await client.query<{
       id: string;
       unit_price: string;
-      unit_price_gros: string | null;
+      effective_gros_price: string | null;
     }>(
-      `SELECT id, unit_price, unit_price_gros
-         FROM products
-        WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL`,
+      `SELECT p.id, p.unit_price,
+              CASE
+                WHEN p.gros_enabled = FALSE THEN NULL
+                WHEN p.unit_price_gros IS NOT NULL THEN p.unit_price_gros
+                ELSE GREATEST(p.unit_price - COALESCE(t.default_gros_rebate_xof, 0), 0)
+              END AS effective_gros_price
+         FROM products p
+         LEFT JOIN tenants t ON t.id = p.tenant_id
+        WHERE p.id = ANY($1::uuid[]) AND p.deleted_at IS NULL`,
       [productIds],
     );
     const map = new Map<string, ProductPriceInfo>();
     for (const r of rows) {
       map.set(r.id, {
         detail: Number(r.unit_price),
-        gros: r.unit_price_gros !== null ? Number(r.unit_price_gros) : null,
+        gros: r.effective_gros_price !== null ? Number(r.effective_gros_price) : null,
       });
     }
     for (const id of productIds) {
