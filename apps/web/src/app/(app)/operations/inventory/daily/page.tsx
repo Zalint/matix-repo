@@ -269,12 +269,37 @@ export default function DailyClosingPage() {
     URL.revokeObjectURL(url);
   }
 
+  // ---------- Filtre "Avec activité" ----------
+  // Par défaut on ne montre que les produits qui ont du stock ou un
+  // mouvement aujourd'hui. Ça évite d'afficher les 140+ produits du tenant
+  // dont la plupart sont à 0. Le toggle "Tous les produits" lève le filtre.
+  const [showAllProducts, setShowAllProducts] = useState(false);
+
+  const isActiveRow = (r: DailyClosingView): boolean => {
+    const f = r.figures;
+    return (
+      f.stock_matin !== 0 ||
+      f.ventes_qte !== 0 ||
+      f.transferts_in !== 0 ||
+      f.transferts_out !== 0 ||
+      f.cuttings_in !== 0 ||
+      f.cuttings_out !== 0 ||
+      f.adjustments !== 0 ||
+      f.retours !== 0 ||
+      r.closing !== null
+    );
+  };
+
+  const filteredRows = useMemo(() => {
+    return showAllProducts ? rows : rows.filter(isActiveRow);
+  }, [rows, showAllProducts]);
+
   // ---------- Virtualization ----------
   // Le tableau peut afficher des milliers de lignes (CROSS JOIN products * pos).
   // On rend uniquement les ~30 visibles a l'ecran via @tanstack/react-virtual.
   const scrollParentRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
-    count: rows.length,
+    count: filteredRows.length,
     getScrollElement: () => scrollParentRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 8,
@@ -283,17 +308,21 @@ export default function DailyClosingPage() {
   const totalSize = rowVirtualizer.getTotalSize();
 
   // ---------- Stats ----------
+  // Stats GLOBALES (sur tous les produits, même filtrés) pour ne pas tromper
+  // l'utilisateur : "Manuels en attente: 0" alors qu'il y en a, juste cachés.
   const stats = useMemo(() => {
     let saisi = 0;
     let auto = 0;
     let pending = 0;
+    let activeCount = 0;
     for (const r of rows) {
+      if (isActiveRow(r)) activeCount++;
       if (!r.closing) {
-        if (r.product.stock_mode === 'manuel') pending++;
+        if (r.product.stock_mode === 'manuel' && isActiveRow(r)) pending++;
       } else if (r.closing.source === 'manual') saisi++;
       else auto++;
     }
-    return { saisi, auto, pending, total: rows.length };
+    return { saisi, auto, pending, total: rows.length, activeCount };
   }, [rows]);
 
   if (!auth.ready) return <PageSpinner />;
@@ -334,6 +363,17 @@ export default function DailyClosingPage() {
             ))}
           </select>
         </div>
+        <div>
+          <label className="flex items-center gap-2 text-xs font-medium text-gray-600 mt-5">
+            <input
+              type="checkbox"
+              checked={showAllProducts}
+              onChange={(e) => setShowAllProducts(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            <span>Tous les produits ({stats.total})</span>
+          </label>
+        </div>
         <div className="ml-auto flex gap-2">
           <Button variant="secondary" onClick={recomputeAuto} disabled={busy}>
             Recalculer auto
@@ -347,11 +387,14 @@ export default function DailyClosingPage() {
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Stats — toujours globales pour ne pas masquer un travail à faire */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Total produits" value={stats.total} />
+        <StatCard
+          label={showAllProducts ? 'Total produits' : 'Avec activité'}
+          value={showAllProducts ? stats.total : stats.activeCount}
+        />
         <StatCard label="Saisis (manuel)" value={stats.saisi} />
-        <StatCard label="Auto-calcules" value={stats.auto} />
+        <StatCard label="Auto-calculés" value={stats.auto} />
         <StatCard
           label="Manuels en attente"
           value={stats.pending}
@@ -367,7 +410,7 @@ export default function DailyClosingPage() {
           ref={scrollParentRef}
           className="h-[640px] overflow-auto"
           role="grid"
-          aria-rowcount={rows.length}
+          aria-rowcount={filteredRows.length}
         >
           <div className="min-w-[1030px]">
             {/* Header sticky : meme template de colonnes que les lignes */}
@@ -387,9 +430,11 @@ export default function DailyClosingPage() {
             </div>
 
             {/* Body virtualise */}
-            {rows.length === 0 ? (
+            {filteredRows.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-gray-400">
-                Aucun produit
+                {showAllProducts
+                  ? 'Aucun produit'
+                  : `Aucun produit avec activité aujourd'hui sur ce PV. Coche "Tous les produits" (${stats.total}) pour voir l'ensemble.`}
               </div>
             ) : (
               <div
@@ -400,7 +445,7 @@ export default function DailyClosingPage() {
                 }}
               >
                 {virtualItems.map((virtual) => {
-                  const r = rows[virtual.index];
+                  const r = filteredRows[virtual.index];
                   return (
                     <div
                       key={r.product.id}

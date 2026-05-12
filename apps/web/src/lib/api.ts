@@ -190,6 +190,8 @@ export type DailyClosingView = {
     transferts_out: number;
     adjustments: number;
     retours: number;
+    cuttings_in: number;
+    cuttings_out: number;
     stock_theorique: number;
   };
   closing: {
