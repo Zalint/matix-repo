@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { api, type Product, type TenantSettings } from '@/lib/api';
+import { api, type Product, type ProductCategory, type TenantSettings } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { PageSpinner } from '@/components/ui/spinner';
 import { useToast } from '@/components/ui/toast';
@@ -13,6 +13,7 @@ export default function ProductsPage() {
   const auth = useAuth();
   const toast = useToast();
   const [items, setItems] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [settings, setSettings] = useState<TenantSettings | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -21,10 +22,15 @@ export default function ProductsPage() {
 
   const reload = () => {
     if (!auth.ready) return;
-    Promise.all([api.products.list(auth), api.tenantSettings.get(auth)])
-      .then(([rows, s]) => {
+    Promise.all([
+      api.products.list(auth),
+      api.tenantSettings.get(auth),
+      api.productCategories.list(auth, { activeOnly: true }),
+    ])
+      .then(([rows, s, cats]) => {
         setItems(rows);
         setSettings(s);
+        setCategories(cats);
         const drafts: Record<string, string> = {};
         for (const p of rows) drafts[p.id] = p.unit_price_gros ?? '';
         setGrosDrafts(drafts);
@@ -42,6 +48,7 @@ export default function ProductsPage() {
     const fd = new FormData(f);
     const grosRaw = String(fd.get('unit_price_gros') ?? '').trim();
     const grosEnabled = fd.get('gros_enabled') === 'on';
+    const categoryId = String(fd.get('category_id') ?? '').trim();
     try {
       await api.products.create(auth, {
         sku: String(fd.get('sku')),
@@ -49,6 +56,7 @@ export default function ProductsPage() {
         unit_price: Number(fd.get('unit_price')),
         gros_enabled: grosEnabled,
         ...(grosRaw !== '' ? { unit_price_gros: Number(grosRaw) } : {}),
+        ...(categoryId !== '' ? { category_id: categoryId } : {}),
       });
       f.reset();
       setShowForm(false);
@@ -58,6 +66,25 @@ export default function ProductsPage() {
       toast.error(err instanceof Error ? err.message : String(err), { title: 'Creation' });
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleChangeCategory(p: Product, newCategoryId: string) {
+    if (!auth.ready) return;
+    // Empty string = retirer la catégorie (null)
+    const next: string | null = newCategoryId === '' ? null : newCategoryId;
+    if (next === p.category_id) return;
+    try {
+      await api.products.update(auth, p.id, { category_id: next });
+      toast.success(
+        next === null
+          ? `${p.name} : catégorie retirée`
+          : `${p.name} → ${categories.find((c) => c.id === next)?.name ?? 'catégorie'}`,
+        { durationMs: 2000 },
+      );
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err), { title: 'Catégorie' });
     }
   }
 
@@ -163,6 +190,20 @@ export default function ProductsPage() {
             />
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+            <select
+              name="category_id"
+              defaultValue=""
+              className="h-10 rounded-md border border-gray-300 bg-white px-3 text-sm"
+            >
+              <option value="">— Sans catégorie —</option>
+              {categoriesByFamily(categories).map(({ family, items: cats }) => (
+                <optgroup key={family} label={family}>
+                  {cats.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" name="gros_enabled" className="h-4 w-4" />
               <span>Vente en gros activée</span>
@@ -172,14 +213,20 @@ export default function ProductsPage() {
               type="number"
               min="0"
               step="1"
-              placeholder="Override prix gros (facultatif)"
+              placeholder="Prix gros override (facultatif)"
               title="Laissez vide pour utiliser le rabais par défaut"
-              className="sm:col-span-2"
             />
             <Button type="submit" disabled={busy}>
               {busy ? 'Enregistrement…' : 'Créer'}
             </Button>
           </div>
+          <p className="text-xs text-gray-500">
+            Pas de catégorie qui convient ?{' '}
+            <Link href="/settings/categories" className="text-brand-700 hover:underline">
+              Crée-la d'abord ici
+            </Link>{' '}
+            puis reviens créer ton produit.
+          </p>
         </form>
       )}
 
@@ -196,6 +243,7 @@ export default function ProductsPage() {
             <tr>
               <Th>SKU</Th>
               <Th>Nom</Th>
+              <Th>Catégorie</Th>
               <Th className="text-right">Prix détails</Th>
               <Th className="text-center">Vente gros</Th>
               <Th className="text-right">Prix gros effectif</Th>
@@ -206,7 +254,7 @@ export default function ProductsPage() {
           <tbody className="divide-y divide-gray-100">
             {items.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
                   Aucun produit
                 </td>
               </tr>
@@ -216,10 +264,30 @@ export default function ProductsPage() {
                 ? Number(p.effective_gros_price)
                 : null;
               const hasOverride = p.unit_price_gros !== null;
+              const currentCat = categories.find((c) => c.id === p.category_id);
               return (
                 <tr key={p.id}>
                   <Td className="font-mono">{p.sku}</Td>
                   <Td>{p.name}</Td>
+                  <Td>
+                    <select
+                      value={p.category_id ?? ''}
+                      onChange={(e) => handleChangeCategory(p, e.target.value)}
+                      className="h-8 w-full max-w-[200px] rounded border border-transparent bg-transparent px-1 text-xs hover:border-gray-300 focus:border-brand-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    >
+                      <option value="">— Sans catégorie —</option>
+                      {categoriesByFamily(categories).map(({ family, items: cats }) => (
+                        <optgroup key={family} label={family}>
+                          {cats.map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                    {currentCat?.family && (
+                      <div className="text-[10px] text-gray-400 px-1">{currentCat.family}</div>
+                    )}
+                  </Td>
                   <Td className="text-right tabular-nums">
                     {Number(p.unit_price).toLocaleString('fr-FR')} XOF
                   </Td>
@@ -292,4 +360,26 @@ function Th({ children, className = '' }: { children: React.ReactNode; className
 }
 function Td({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return <td className={`px-4 py-2 ${className}`}>{children}</td>;
+}
+
+/**
+ * Groupe les catégories par famille pour les <optgroup> du select.
+ * Les "sans famille" se retrouvent dans un groupe dédié à la fin.
+ */
+function categoriesByFamily(
+  cats: ProductCategory[],
+): Array<{ family: string; items: ProductCategory[] }> {
+  const map = new Map<string, ProductCategory[]>();
+  for (const c of cats) {
+    const f = c.family ?? '— Sans famille —';
+    const list = map.get(f) ?? [];
+    list.push(c);
+    map.set(f, list);
+  }
+  return Array.from(map.entries())
+    .map(([family, list]) => ({
+      family,
+      items: list.slice().sort((a, b) => a.name.localeCompare(b.name)),
+    }))
+    .sort((a, b) => a.family.localeCompare(b.family));
 }
