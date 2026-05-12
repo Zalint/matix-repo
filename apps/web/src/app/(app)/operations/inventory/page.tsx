@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { PageSpinner } from '@/components/ui/spinner';
 import { useToast } from '@/components/ui/toast';
 import {
   api,
@@ -95,7 +96,7 @@ export default function StockLevelsPage() {
     return { total: rows.length, neg, zero, pos };
   }, [rows]);
 
-  if (!auth.ready) return <div className="text-sm text-gray-500">Chargement…</div>;
+  if (!auth.ready) return <PageSpinner />;
 
   return (
     <div className="space-y-4">

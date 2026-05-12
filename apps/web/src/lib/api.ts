@@ -1,5 +1,6 @@
 'use client';
 
+import { signOut } from 'next-auth/react';
 import type { AuthState } from './auth-context';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
@@ -11,9 +12,62 @@ export class ApiError extends Error {
 }
 
 /**
+ * Erreur d'auth expirée. Le UI ne doit PAS afficher le détail technique
+ * (`JWT invalide: exp claim timestamp check failed`) à l'utilisateur final.
+ * Au lieu de ça, on déclenche un logout + redirect /login et on remonte
+ * un message générique.
+ */
+export class AuthExpiredError extends ApiError {
+  constructor(originalMessage: string) {
+    super(401, null, 'Session expirée, reconnectez-vous.');
+    this.name = 'AuthExpiredError';
+    // Garde le message technique en console pour les devs uniquement
+    if (typeof window !== 'undefined') {
+      // eslint-disable-next-line no-console
+      console.warn('[Auth] Token expiré ou invalide :', originalMessage);
+    }
+  }
+}
+
+// Anti-rebond : on ne déclenche le signOut qu'une seule fois même si plusieurs
+// requêtes en vol échouent en 401 simultanément.
+let signOutInFlight = false;
+async function handleAuthExpired(): Promise<void> {
+  if (signOutInFlight) return;
+  signOutInFlight = true;
+  try {
+    // Mode dev : pas de session NextAuth, on redirige directement.
+    if (typeof window !== 'undefined') {
+      const isDev = process.env.NEXT_PUBLIC_AUTH_MODE === 'dev';
+      if (isDev) {
+        window.location.href = '/login';
+      } else {
+        await signOut({ callbackUrl: '/login', redirect: true });
+      }
+    }
+  } finally {
+    // On laisse signOutInFlight=true : la page navigue de toute façon
+  }
+}
+
+/**
+ * Détecte si une réponse 401/403 correspond à un token expiré/invalide.
+ * Côté Keycloak/NestJS l'erreur ressemble à `JWT invalide: "exp" claim...`,
+ * `jwt expired`, `Unauthorized`, etc. On considère TOUT 401/403 comme une
+ * session perdue — c'est cohérent UX (l'utilisateur n'a pas à comprendre
+ * la nuance entre expired et révoqué).
+ */
+function isAuthError(status: number): boolean {
+  return status === 401 || status === 403;
+}
+
+/**
  * Wrapper fetch typé. Selon le mode auth :
  *   - dev      → headers X-Dev-Tenant-Id / X-Dev-User-Id
  *   - keycloak → Authorization: Bearer <accessToken>
+ *
+ * Sur 401/403 : signOut + redirect /login, le caller reçoit AuthExpiredError
+ * avec un message générique. Les détails techniques vont en console.
  */
 async function apiFetch<T>(auth: AuthState, path: string, init: RequestInit = {}): Promise<T> {
   if (!auth.ready) throw new ApiError(401, null, 'Auth not ready');
@@ -35,6 +89,13 @@ async function apiFetch<T>(auth: AuthState, path: string, init: RequestInit = {}
   const body = text ? JSON.parse(text) : null;
 
   if (!res.ok) {
+    if (isAuthError(res.status)) {
+      const technicalMsg = body?.message ?? `HTTP ${res.status}`;
+      // Déclenche le logout en arrière-plan (pas await pour ne pas bloquer
+      // le throw — l'appel suivant verra que signOutInFlight=true).
+      void handleAuthExpired();
+      throw new AuthExpiredError(technicalMsg);
+    }
     throw new ApiError(res.status, body, body?.message ?? `HTTP ${res.status}`);
   }
   return body as T;

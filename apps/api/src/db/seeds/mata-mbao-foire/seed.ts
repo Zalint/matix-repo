@@ -173,6 +173,20 @@ async function getOrCreatePos(
   code: string,
   name: string,
 ): Promise<string> {
+  // Avant tout, on cherche un PV existant par NAME (case-insensitive + trim) pour
+  // éviter de créer un doublon visuel : si un PV "Mbao" existe déjà sous un autre
+  // code (ex: 'pv-1' historique du provisioning), on le réutilise.
+  const existing = await client.query<{ id: string }>(
+    `SELECT id FROM points_of_sale
+      WHERE tenant_id = $1
+        AND deleted_at IS NULL
+        AND lower(trim(name)) = lower(trim($2))
+      LIMIT 1`,
+    [tenantId, name],
+  );
+  if (existing.rows.length > 0) return existing.rows[0].id;
+
+  // Sinon, INSERT avec ON CONFLICT sur le code (autre constraint d'unicité)
   const r = await client.query<{ id: string }>(
     `INSERT INTO points_of_sale (tenant_id, code, name, is_active)
      VALUES ($1, $2, $3, TRUE)

@@ -55,28 +55,58 @@ export class PointsOfSaleService {
       );
       return rows[0];
     } catch (e: unknown) {
-      if (typeof e === 'object' && e !== null && 'code' in e && (e as { code: string }).code === '23505') {
-        throw new ConflictException(`Point de vente avec le code "${dto.code}" existe déjà`);
-      }
-      throw e;
+      throw this._normalizeUniqueViolation(e, dto.code, dto.name);
     }
   }
 
   async update(id: string, dto: UpdatePointOfSaleDto): Promise<PointOfSale> {
     const client = getTenantPgClient(this.cls);
-    const { rows } = await client.query<PointOfSale>(
-      `UPDATE points_of_sale SET
-         name       = COALESCE($2, name),
-         address    = COALESCE($3, address),
-         phone      = COALESCE($4, phone),
-         is_active  = COALESCE($5, is_active),
-         updated_at = NOW()
-       WHERE id = $1 AND deleted_at IS NULL
-       RETURNING ${COLS}`,
-      [id, dto.name ?? null, dto.address ?? null, dto.phone ?? null, dto.is_active ?? null],
-    );
-    if (rows.length === 0) throw new NotFoundException('Point de vente introuvable');
-    return rows[0];
+    try {
+      const { rows } = await client.query<PointOfSale>(
+        `UPDATE points_of_sale SET
+           name       = COALESCE($2, name),
+           address    = COALESCE($3, address),
+           phone      = COALESCE($4, phone),
+           is_active  = COALESCE($5, is_active),
+           updated_at = NOW()
+         WHERE id = $1 AND deleted_at IS NULL
+         RETURNING ${COLS}`,
+        [id, dto.name ?? null, dto.address ?? null, dto.phone ?? null, dto.is_active ?? null],
+      );
+      if (rows.length === 0) throw new NotFoundException('Point de vente introuvable');
+      return rows[0];
+    } catch (e: unknown) {
+      if (e instanceof NotFoundException) throw e;
+      throw this._normalizeUniqueViolation(e, null, dto.name);
+    }
+  }
+
+  /**
+   * Convertit les erreurs Postgres UNIQUE en ConflictException avec un message
+   * adapté à la contrainte qui a sauté. Deux constraints à surveiller :
+   *   - UNIQUE(tenant_id, code) sur la table → "code déjà utilisé"
+   *   - uq_points_of_sale_tenant_name_active (index partiel) → "nom déjà utilisé"
+   */
+  private _normalizeUniqueViolation(
+    e: unknown,
+    code: string | null,
+    name: string | undefined,
+  ): unknown {
+    if (typeof e === 'object' && e !== null && 'code' in e && (e as { code: string }).code === '23505') {
+      const constraint = (e as { constraint?: string }).constraint;
+      if (constraint === 'uq_points_of_sale_tenant_name_active') {
+        return new ConflictException(
+          `Un point de vente nommé "${name ?? ''}" existe déjà pour ce tenant.`,
+        );
+      }
+      // Par défaut, on suppose la contrainte sur le code
+      return new ConflictException(
+        code
+          ? `Point de vente avec le code "${code}" existe déjà.`
+          : 'Conflit d\'unicité sur le point de vente.',
+      );
+    }
+    return e;
   }
 
   async softDelete(id: string): Promise<void> {

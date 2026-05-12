@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, type Product, type TenantSettings } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { PageSpinner } from '@/components/ui/spinner';
 import { useToast } from '@/components/ui/toast';
 
 export default function ProductsPage() {
@@ -118,7 +119,7 @@ export default function ProductsPage() {
     }
   }
 
-  if (!auth.ready) return <div className="text-sm text-gray-500">Chargement…</div>;
+  if (!auth.ready) return <PageSpinner />;
 
   const tenantLabel = auth.mode === 'dev' ? auth.tenantLabel : auth.userEmail ?? 'tenant';
   const rebate = settings?.default_gros_rebate_xof ?? 0;

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Input } from '@/components/ui/input';
+import { PageSpinner } from '@/components/ui/spinner';
 import { useToast } from '@/components/ui/toast';
 import {
   api,
@@ -88,7 +89,7 @@ export default function MorningStockPage() {
 
   const totalQty = morningRows.reduce((s, r) => s + r.quantity, 0);
 
-  if (!auth.ready) return <div className="text-sm text-gray-500">Chargement…</div>;
+  if (!auth.ready) return <PageSpinner />;
 
   return (
     <div className="space-y-4">

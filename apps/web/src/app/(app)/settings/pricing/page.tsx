@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PageSpinner } from '@/components/ui/spinner';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
@@ -64,7 +65,7 @@ export default function PricingSettingsPage() {
     }
   }
 
-  if (!auth.ready) return <div className="text-sm text-gray-500">Chargement…</div>;
+  if (!auth.ready) return <PageSpinner />;
 
   const num = Number(rebate);
   const example = Number.isFinite(num) && num > 0
