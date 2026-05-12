@@ -73,7 +73,7 @@ const POS_MAP: Record<string, { code: string; name: string }> = {
 type ProductDef = {
   sku: string;
   name: string;
-  category: 'Bovin' | 'Ovin' | 'Volaille' | 'Divers';
+  category: 'Bovin' | 'Ovin' | 'Caprin' | 'Volaille' | 'Divers';
   unit_price: number;   // prix détails
   gros_enabled: boolean;
 };
@@ -291,12 +291,14 @@ async function main() {
     }
     console.log(`✅ Licences activées`);
 
-    // 4) Catégories
+    // 4) Catégories — toutes les viandes (Bovin/Ovin/Caprin/Volaille) sont en
+    //    famille "Boucherie" pour que le trigger stock_mode='manuel' s'applique.
     const catBovin = await getOrCreateCategory(adminPool, tenantId, 'bovin', 'Bovin', 'Boucherie');
     const catOvin = await getOrCreateCategory(adminPool, tenantId, 'ovin', 'Ovin', 'Boucherie');
-    const catVolaille = await getOrCreateCategory(adminPool, tenantId, 'volaille', 'Volaille', 'Volaille');
+    const catCaprin = await getOrCreateCategory(adminPool, tenantId, 'caprin', 'Caprin', 'Boucherie');
+    const catVolaille = await getOrCreateCategory(adminPool, tenantId, 'volaille', 'Volaille', 'Boucherie');
     const catDivers = await getOrCreateCategory(adminPool, tenantId, 'divers', 'Divers', 'Divers');
-    console.log(`✅ Catégories Bovin/Ovin/Volaille/Divers`);
+    console.log(`✅ Catégories Bovin/Ovin/Caprin/Volaille (Boucherie) + Divers`);
 
     // 5) PV cible (un seul) — tous les PV legacy convergent dessus
     const mbaoPosId = await getOrCreatePos(adminPool, tenantId, TARGET_POS.code, TARGET_POS.name);
@@ -312,6 +314,7 @@ async function main() {
       const categoryId =
         def.category === 'Bovin' ? catBovin :
         def.category === 'Ovin' ? catOvin :
+        def.category === 'Caprin' ? catCaprin :
         def.category === 'Volaille' ? catVolaille :
         catDivers;
       productIdBySku[def.sku] = await upsertProduct(adminPool, tenantId, def, categoryId);

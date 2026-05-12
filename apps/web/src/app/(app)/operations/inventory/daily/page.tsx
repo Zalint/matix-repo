@@ -10,6 +10,7 @@ import {
   api,
   type DailyClosingView,
   type PointOfSale,
+  type ProductCategory,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 
@@ -47,14 +48,22 @@ export default function DailyClosingPage() {
   const [date, setDate] = useState(today);
   const [pos, setPos] = useState<PointOfSale[]>([]);
   const [posId, setPosId] = useState<string>('');
+  const [categories, setCategories] = useState<ProductCategory[]>([]);
+  const [familyFilter, setFamilyFilter] = useState<string>('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('');
+  const [searchFilter, setSearchFilter] = useState<string>('');
   const [rows, setRows] = useState<DailyClosingView[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [note, setNote] = useState<string>('');
   const [busy, setBusy] = useState(false);
 
-  // Charger les PV au mount (une fois)
+  // Charger PV + catégories au mount (une fois)
   useEffect(() => {
     if (!auth.ready) return;
+    api.productCategories
+      .list(auth, { activeOnly: true })
+      .then(setCategories)
+      .catch((e) => toast.error(String(e), { title: 'Catégories' }));
     api.pointsOfSale
       .list(auth, { activeOnly: true })
       .then((items) => {
@@ -290,9 +299,52 @@ export default function DailyClosingPage() {
     );
   };
 
+  // Familles distinctes (à partir des catégories chargées) — pour le dropdown
+  const families = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of categories) {
+      if (c.family) set.add(c.family);
+    }
+    return Array.from(set).sort();
+  }, [categories]);
+
+  // Catégories filtrées par famille sélectionnée (cascade)
+  const categoriesFiltered = useMemo(() => {
+    if (!familyFilter) return categories;
+    return categories.filter((c) => c.family === familyFilter);
+  }, [categories, familyFilter]);
+
+  // Map produit → famille pour filtrer les rows
+  const productFamilyMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of categories) {
+      m.set(c.id, c.family ?? '');
+    }
+    return m;
+  }, [categories]);
+
   const filteredRows = useMemo(() => {
-    return showAllProducts ? rows : rows.filter(isActiveRow);
-  }, [rows, showAllProducts]);
+    const search = searchFilter.trim().toLowerCase();
+    return rows.filter((r) => {
+      // Filtre "Avec activité" (défaut)
+      if (!showAllProducts && !isActiveRow(r)) return false;
+      // Filtre famille (transitif via category_id du produit → product_categories.family)
+      if (familyFilter) {
+        const fam = r.product.category_id
+          ? productFamilyMap.get(r.product.category_id) ?? ''
+          : '';
+        if (fam !== familyFilter) return false;
+      }
+      // Filtre catégorie directe
+      if (categoryFilter && r.product.category_id !== categoryFilter) return false;
+      // Recherche texte sur nom + SKU
+      if (search) {
+        const haystack = `${r.product.name} ${r.product.sku}`.toLowerCase();
+        if (!haystack.includes(search)) return false;
+      }
+      return true;
+    });
+  }, [rows, showAllProducts, familyFilter, categoryFilter, searchFilter, productFamilyMap]);
 
   // ---------- Virtualization ----------
   // Le tableau peut afficher des milliers de lignes (CROSS JOIN products * pos).
@@ -364,6 +416,46 @@ export default function DailyClosingPage() {
           </select>
         </div>
         <div>
+          <label className="block text-xs font-medium text-gray-600">Famille</label>
+          <select
+            value={familyFilter}
+            onChange={(e) => {
+              setFamilyFilter(e.target.value);
+              // Reset cascade si la catégorie n'appartient plus à la nouvelle famille
+              setCategoryFilter('');
+            }}
+            className="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm"
+          >
+            <option value="">Toutes</option>
+            {families.map((f) => (
+              <option key={f} value={f}>{f}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600">Catégorie</label>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm"
+          >
+            <option value="">Toutes</option>
+            {categoriesFiltered.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="min-w-[180px] flex-1">
+          <label className="block text-xs font-medium text-gray-600">Recherche produit</label>
+          <input
+            type="text"
+            value={searchFilter}
+            onChange={(e) => setSearchFilter(e.target.value)}
+            placeholder="Nom ou SKU"
+            className="h-9 w-full rounded-md border border-gray-300 bg-white px-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+          />
+        </div>
+        <div>
           <label className="flex items-center gap-2 text-xs font-medium text-gray-600 mt-5">
             <input
               type="checkbox"
@@ -371,7 +463,7 @@ export default function DailyClosingPage() {
               onChange={(e) => setShowAllProducts(e.target.checked)}
               className="h-4 w-4 rounded border-gray-300"
             />
-            <span>Tous les produits ({stats.total})</span>
+            <span>Tous ({stats.total})</span>
           </label>
         </div>
         <div className="ml-auto flex gap-2">
@@ -432,9 +524,11 @@ export default function DailyClosingPage() {
             {/* Body virtualise */}
             {filteredRows.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-gray-400">
-                {showAllProducts
-                  ? 'Aucun produit'
-                  : `Aucun produit avec activité aujourd'hui sur ce PV. Coche "Tous les produits" (${stats.total}) pour voir l'ensemble.`}
+                {familyFilter || categoryFilter || searchFilter
+                  ? 'Aucun produit ne correspond aux filtres.'
+                  : showAllProducts
+                    ? 'Aucun produit'
+                    : `Aucun produit avec activité aujourd'hui sur ce PV. Coche "Tous" (${stats.total}) pour voir l'ensemble.`}
               </div>
             ) : (
               <div
